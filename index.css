@@ -1,0 +1,16 @@
+export default function WaitingOnClient({ clients }) {
+  return (
+    <div className="waiting-block">
+      <div className="waiting-title">Waiting on Client</div>
+      {clients.length === 0 ? (
+        <div className="waiting-empty">Nothing waiting</div>
+      ) : (
+        <ul>
+          {clients.map((c) => (
+            <li key={c}>{c}</li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}

@@ -1,0 +1,29 @@
+import { useState } from 'react'
+import Sidebar from './components/Sidebar'
+import Planner from './components/Planner'
+
+function ComingSoon({ name }) {
+  return (
+    <div className="coming-soon">
+      <h2>{name}</h2>
+      <p>Not built yet — this lands in a later sprint.</p>
+    </div>
+  )
+}
+
+export default function App() {
+  const [page, setPage] = useState('planner')
+
+  return (
+    <div className="app-shell">
+      <Sidebar active={page} onNavigate={setPage} />
+      <main className="main-area">
+        {page === 'planner' && <Planner />}
+        {page === 'dashboard' && <ComingSoon name="Dashboard (Sprint 2)" />}
+        {page === 'clients' && <ComingSoon name="Clients (Sprint 2)" />}
+        {page === 'reports' && <ComingSoon name="Reports (Sprint 3)" />}
+        {page === 'settings' && <ComingSoon name="Settings" />}
+      </main>
+    </div>
+  )
+}

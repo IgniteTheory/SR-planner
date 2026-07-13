@@ -1,0 +1,35 @@
+const BASE = '/api'
+
+async function handle(res) {
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(`API error ${res.status}: ${text}`)
+  }
+  return res.json()
+}
+
+export const api = {
+  listTasks: () => fetch(`${BASE}/tasks`).then(handle),
+  createTask: (payload) =>
+    fetch(`${BASE}/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(handle),
+  updateTask: (id, payload) =>
+    fetch(`${BASE}/tasks/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then(handle),
+  moveTask: (id, column, position) =>
+    fetch(`${BASE}/tasks/${id}/move`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ column, position }),
+    }).then(handle),
+  deleteTask: (id) => fetch(`${BASE}/tasks/${id}`, { method: 'DELETE' }).then(handle),
+  today: () => fetch(`${BASE}/today`).then(handle),
+  waitingOnClient: () => fetch(`${BASE}/waiting-on-client`).then(handle),
+  clients: () => fetch(`${BASE}/clients`).then(handle),
+}

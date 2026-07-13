@@ -1,0 +1,169 @@
+import datetime
+from typing import List, Optional
+
+from fastapi import FastAPI, Depends, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+
+import models
+import schemas
+from database import engine, get_db, Base
+
+Base.metadata.create_all(bind=engine)
+
+app = FastAPI(title="SR Planner API")
+
+# Wide open for local dev. Tighten this before deploying anywhere shared.
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+DAILY_CAPACITY_HOURS = 8.0
+WEEKDAY_COLUMNS = ["monday", "tuesday", "wednesday", "thursday", "friday"]
+
+
+@app.get("/")
+def root():
+    return {"status": "SR Planner API running"}
+
+
+# ---------- Tasks ----------
+
+@app.get("/tasks", response_model=List[schemas.TaskOut])
+def list_tasks(column: Optional[str] = None, db: Session = Depends(get_db)):
+    q = db.query(models.Task)
+    if column:
+        q = q.filter(models.Task.column == column)
+    return q.order_by(models.Task.column, models.Task.position, models.Task.id).all()
+
+
+@app.post("/tasks", response_model=schemas.TaskOut)
+def create_task(payload: schemas.TaskQuickCreate, db: Session = Depends(get_db)):
+    # Quick-add form only sends Client / Task / Hours / Due.
+    # Everything else gets a sane default and can be edited later.
+    max_pos = (
+        db.query(func.max(models.Task.position))
+        .filter(models.Task.column == "parking_lot")
+        .scalar()
+        or 0
+    )
+    task = models.Task(
+        client=payload.client,
+        task=payload.task,
+        estimated_hours=payload.estimated_hours,
+        actual_hours=0.0,
+        due_date=payload.due_date,
+        status="Not Started",
+        priority="Normal",
+        column="parking_lot",
+        position=max_pos + 1,
+    )
+    db.add(task)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+@app.get("/tasks/{task_id}", response_model=schemas.TaskOut)
+def get_task(task_id: int, db: Session = Depends(get_db)):
+    task = db.query(models.Task).get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    return task
+
+
+@app.put("/tasks/{task_id}", response_model=schemas.TaskOut)
+def update_task(task_id: int, payload: schemas.TaskUpdate, db: Session = Depends(get_db)):
+    task = db.query(models.Task).get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    for field, value in payload.dict(exclude_unset=True).items():
+        setattr(task, field, value)
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+@app.patch("/tasks/{task_id}/move", response_model=schemas.TaskOut)
+def move_task(task_id: int, payload: schemas.TaskMove, db: Session = Depends(get_db)):
+    """Used by drag-and-drop: change which column (day) a task sits in."""
+    task = db.query(models.Task).get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    task.column = payload.column
+    task.position = payload.position
+    db.commit()
+    db.refresh(task)
+    return task
+
+
+@app.delete("/tasks/{task_id}")
+def delete_task(task_id: int, db: Session = Depends(get_db)):
+    task = db.query(models.Task).get(task_id)
+    if not task:
+        raise HTTPException(status_code=404, detail="Task not found")
+    db.delete(task)
+    db.commit()
+    return {"ok": True}
+
+
+# ---------- Dashboard helpers ----------
+
+@app.get("/today")
+def today_summary(db: Session = Depends(get_db)):
+    """Today's total booked hours, mapped to whichever weekday column matches today."""
+    weekday_index = datetime.date.today().weekday()  # Mon=0 ... Sun=6
+    if weekday_index > 4:
+        # Weekend: no column for it, just show zero against Monday's target.
+        today_column = None
+    else:
+        today_column = WEEKDAY_COLUMNS[weekday_index]
+
+    booked = 0.0
+    if today_column:
+        booked = (
+            db.query(func.coalesce(func.sum(models.Task.estimated_hours), 0.0))
+            .filter(models.Task.column == today_column)
+            .scalar()
+        )
+
+    return {
+        "column": today_column,
+        "booked_hours": round(booked, 2),
+        "capacity_hours": DAILY_CAPACITY_HOURS,
+    }
+
+
+@app.get("/waiting-on-client")
+def waiting_on_client(db: Session = Depends(get_db)):
+    """Distinct clients with at least one task in 'Waiting on Client' status."""
+    rows = (
+        db.query(models.Task.client)
+        .filter(models.Task.status == "Waiting on Client")
+        .distinct()
+        .all()
+    )
+    return [r[0] for r in rows]
+
+
+@app.get("/clients")
+def list_clients(db: Session = Depends(get_db)):
+    """Simple client summary: budgeted (estimated) vs actual hours, for Sprint 2's dashboard."""
+    rows = (
+        db.query(
+            models.Task.client,
+            func.coalesce(func.sum(models.Task.estimated_hours), 0.0).label("estimated"),
+            func.coalesce(func.sum(models.Task.actual_hours), 0.0).label("actual"),
+        )
+        .group_by(models.Task.client)
+        .all()
+    )
+    return [
+        {"client": r.client, "estimated_hours": round(r.estimated, 2), "actual_hours": round(r.actual, 2)}
+        for r in rows
+    ]
