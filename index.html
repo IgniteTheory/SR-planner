@@ -16,6 +16,8 @@
     --text-muted: #6b7570;
     --danger: #c0392b;
     --amber: #b8790f;
+    --meeting: #8b5cf6;
+    --meeting-bg: #f6f1ff;
     --sans: 'Segoe UI', system-ui, -apple-system, Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
@@ -43,6 +45,7 @@
     font-size: 13px;
     opacity: 0.9;
   }
+  header.topbar .actions { display: flex; align-items: center; gap: 10px; }
   .btn {
     border: none;
     border-radius: 5px;
@@ -119,6 +122,8 @@
   .mini-task .t { font-weight: 600; font-size: 12.5px; }
   .mini-task .c { color: var(--text-muted); font-size: 11.5px; }
   .empty-note { color: var(--text-muted); font-size: 12px; padding: 4px 2px; }
+  .link-note { color: var(--green-dark); font-size: 11.5px; padding: 4px 2px; cursor: pointer; }
+  .link-note:hover { text-decoration: underline; }
 
   .phone-slip {
     display: flex;
@@ -195,7 +200,7 @@
   .planner-grid .cell {
     border-top: 1px solid var(--border);
     border-left: 1px solid var(--border);
-    min-height: 32px;
+    min-height: 28px;
     padding: 2px;
   }
   .planner-grid .cell.drag-over { background: var(--green-light); }
@@ -216,6 +221,8 @@
   .task-card.prio-High { border-left-color: var(--danger); }
   .task-card.prio-Medium { border-left-color: var(--amber); }
   .task-card.prio-Low { border-left-color: #8ea0b3; }
+  .task-card.kind-meeting { background: var(--meeting-bg); border-left-color: var(--meeting); }
+  .task-card.continuation { padding: 2px; opacity: 0.5; }
 
   /* Right panel: parking lot */
   .parking-list { display: flex; flex-direction: column; gap: 8px; }
@@ -231,7 +238,7 @@
   .parking-card .meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
   .parking-card .actions { display: flex; gap: 6px; }
 
-  /* Sub-tasks */
+  /* Sub-tasks / work log */
   .subtask-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12.5px; }
   .subtask-row .txt.done { text-decoration: line-through; color: var(--text-muted); }
   .subtask-row .txt { flex: 1; }
@@ -250,6 +257,7 @@
     background: #fff; border-radius: 8px; padding: 20px; width: 380px; max-width: calc(100vw - 32px);
     max-height: calc(100vh - 40px); overflow-y: auto;
   }
+  .modal.modal-wide { width: 560px; }
   .modal h2 { margin: 0 0 14px; font-size: 16px; }
   .modal h3 { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--green-dark); margin: 0 0 6px; }
   .modal label {
@@ -271,7 +279,7 @@
   .modal-actions.spread { justify-content: space-between; }
   .radio-group { display: flex; gap: 14px; margin-bottom: 10px; }
   .radio-group label { flex-direction: row; align-items: center; gap: 5px; font-weight: 600; color: var(--text); }
-  .stat-row { display: flex; justify-content: space-between; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .stat-row { display: flex; justify-content: space-between; align-items: center; padding: 6px 0; border-bottom: 1px solid var(--border); font-size: 13px; gap: 10px; }
   .stat-row b { font-size: 14px; }
   .prompt-text { font-size: 13.5px; margin-bottom: 12px; }
 </style>
@@ -280,8 +288,10 @@
 
 <header class="topbar">
   <h1>SR Planner</h1>
-  <div style="display:flex; align-items:center; gap:14px;">
+  <div class="actions">
     <span class="date" id="todayLabel"></span>
+    <button class="btn btn-light" onclick="openReportModal()">Report</button>
+    <button class="btn btn-light" onclick="openAddMeetingModal()">+ Add Meeting</button>
     <button class="btn btn-light" onclick="openAddTaskModal()">+ Add Task</button>
   </div>
 </header>
@@ -300,14 +310,28 @@
 
   var STORAGE_KEY = 'srPlannerState';
   var SWATCHES = ['#1f7a4d', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#64748b', '#0ea5e9'];
+  var MEETING_COLOUR = '#8b5cf6';
   var CHANEL_STATUSES = ['To Do', 'Doing', 'Done'];
   var CHANEL_COLUMN_ORDER = ['Doing', 'To Do', 'Done'];
+  var CHANEL_DONE_LIMIT = 3;
+  var MEETING_DURATIONS = [
+    { label: '30 min', slots: 1 },
+    { label: '1 hour', slots: 2 },
+    { label: '1.5 hours', slots: 3 },
+    { label: '2 hours', slots: 4 },
+    { label: '3 hours', slots: 6 }
+  ];
+
+  function pad2(n) {
+    return n < 10 ? '0' + n : '' + n;
+  }
 
   var TIME_SLOTS = (function () {
     var slots = [];
-    for (var h = 8; h < 17; h++) {
-      slots.push(pad2(h) + ':00');
-      slots.push(pad2(h) + ':30');
+    var startMin = 6 * 60 + 30; // 06:30
+    var endMin = 19 * 60; // up to (not incl) 19:00
+    for (var m = startMin; m < endMin; m += 30) {
+      slots.push(pad2(Math.floor(m / 60)) + ':' + pad2(m % 60));
     }
     return slots;
   })();
@@ -331,6 +355,8 @@
       if (typeof parsed.nextId !== 'number') parsed.nextId = 1;
       parsed.tasks.forEach(function (t) {
         if (!Array.isArray(t.subtasks)) t.subtasks = [];
+        if (!Array.isArray(t.workLog)) t.workLog = [];
+        if (!t.kind) t.kind = 'task';
       });
       return parsed;
     } catch (e) {
@@ -366,10 +392,6 @@
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
       .replace(/"/g, '&quot;');
-  }
-
-  function pad2(n) {
-    return n < 10 ? '0' + n : '' + n;
   }
 
   function fmtDate(d) {
@@ -412,18 +434,48 @@
       ' - ' + end.getDate() + ' ' + end.toLocaleDateString(undefined, { month: 'short' }) + ' ' + end.getFullYear();
   }
 
+  function durationLabel(slots) {
+    var match = MEETING_DURATIONS.filter(function (d) { return d.slots === slots; })[0];
+    return match ? match.label : (slots * 30) + ' min';
+  }
+
   function subtaskBadge(t) {
     if (!t.subtasks || !t.subtasks.length) return '';
     var done = t.subtasks.filter(function (s) { return s.done; }).length;
     return '<span class="subtask-badge">' + done + '/' + t.subtasks.length + '</span>';
   }
 
+  function occupiedSlotsFor(item) {
+    if (item.kind === 'meeting') {
+      var startIdx = TIME_SLOTS.indexOf(item.startTime);
+      if (startIdx === -1) return [item.startTime];
+      return TIME_SLOTS.slice(startIdx, startIdx + (item.durationSlots || 1));
+    }
+    return [item.startTime];
+  }
+
+  function findConflict(dateIso, startTime, durationSlots, excludeId) {
+    var startIdx = TIME_SLOTS.indexOf(startTime);
+    if (startIdx === -1) return null;
+    var wanted = TIME_SLOTS.slice(startIdx, startIdx + durationSlots);
+    var candidates = state.tasks.filter(function (t) {
+      return t.assignedTo === 'Stephan' && !t.completed && t.scheduledDate === dateIso && t.startTime && t.id !== excludeId;
+    });
+    for (var i = 0; i < candidates.length; i++) {
+      var occ = occupiedSlotsFor(candidates[i]);
+      for (var j = 0; j < occ.length; j++) {
+        if (wanted.indexOf(occ[j]) !== -1) return candidates[i];
+      }
+    }
+    return null;
+  }
+
   /* ---------- modal ---------- */
 
-  function openModal(html) {
+  function openModal(html, wide) {
     document.getElementById('modalRoot').innerHTML =
       '<div class="modal-overlay" onclick="if(event.target===this) closeModal()">' +
-      '<div class="modal" onclick="event.stopPropagation()">' + html + '</div></div>';
+      '<div class="modal' + (wide ? ' modal-wide' : '') + '" onclick="event.stopPropagation()">' + html + '</div></div>';
   }
 
   function closeModal() {
@@ -446,11 +498,15 @@
       priority: data.priority || 'Medium',
       assignedTo: data.assignedTo || 'Stephan',
       colour: data.colour || SWATCHES[0],
-      scheduledDate: undefined,
-      startTime: undefined,
+      kind: data.kind || 'task',
+      scheduledDate: data.scheduledDate,
+      startTime: data.startTime,
+      durationSlots: data.durationSlots,
       completed: false,
+      completedAt: undefined,
       chanelStatus: data.assignedTo === 'Chanel' ? 'To Do' : undefined,
-      subtasks: []
+      subtasks: [],
+      workLog: []
     };
     state.tasks.push(task);
     saveState();
@@ -487,17 +543,39 @@
   }
 
   function scheduleTask(id, dateIso, time) {
+    var t = getTask(id);
+    var durationSlots = (t && t.kind === 'meeting') ? (t.durationSlots || 1) : 1;
+    var conflict = findConflict(dateIso, time, durationSlots, id);
+    if (conflict && !confirm('This overlaps with "' + conflict.title + '". Schedule anyway?')) return;
     updateTask(id, { scheduledDate: dateIso, startTime: time });
     closeModal();
   }
 
   function completeTask(id) {
-    updateTask(id, { completed: true });
+    updateTask(id, { completed: true, completedAt: new Date().toISOString() });
     closeModal();
   }
 
+  function restoreTask(id) {
+    updateTask(id, { completed: false, completedAt: undefined });
+    reopenReport();
+  }
+
   function setChanelStatus(id, status) {
-    updateTask(id, { chanelStatus: status });
+    var patch = { chanelStatus: status };
+    patch.completedAt = status === 'Done' ? new Date().toISOString() : undefined;
+    updateTask(id, patch);
+  }
+
+  function restoreChanelTask(id) {
+    updateTask(id, { chanelStatus: 'To Do', completedAt: undefined });
+    reopenReport();
+  }
+
+  function reopenReport() {
+    var f = document.getElementById('report_from');
+    var t = document.getElementById('report_to');
+    openReportModal(f ? f.value : '', t ? t.value : '');
   }
 
   function continueTomorrowChanel(id) {
@@ -514,11 +592,14 @@
       priority: t.priority,
       assignedTo: 'Chanel',
       colour: t.colour,
+      kind: 'task',
       scheduledDate: undefined,
       startTime: undefined,
       completed: false,
+      completedAt: undefined,
       chanelStatus: 'To Do',
-      subtasks: (t.subtasks || []).map(function (s) { return { id: uid(), text: s.text, done: false }; })
+      subtasks: (t.subtasks || []).map(function (s) { return { id: uid(), text: s.text, done: false }; }),
+      workLog: []
     };
     state.tasks.unshift(dup);
     t.completed = true;
@@ -662,6 +743,29 @@
       '</div>';
   }
 
+  /* ---------- work log ---------- */
+
+  function deleteWorkLogEntry(taskId, entryId) {
+    var t = getTask(taskId);
+    if (!t || !t.workLog) return;
+    t.workLog = t.workLog.filter(function (e) { return e.id !== entryId; });
+    t.actualHours = t.workLog.reduce(function (s, e) { return s + e.hours; }, 0);
+    t.remainingHours = Math.max(0, (t.budgetHours || 0) - t.actualHours);
+    saveState();
+    openTaskDetails(taskId);
+    render();
+  }
+
+  function workLogHtml(t) {
+    var entries = t.workLog || [];
+    if (!entries.length) return '';
+    var rows = entries.slice().reverse().map(function (e) {
+      return '<div class="subtask-row"><span class="txt">' + new Date(e.timestamp).toLocaleString() + ' &mdash; ' + e.hours + 'h</span>' +
+        '<button onclick="deleteWorkLogEntry(' + t.id + ',' + e.id + ')" title="Remove entry">&times;</button></div>';
+    }).join('');
+    return '<h3>Work Log</h3>' + rows;
+  }
+
   /* ---------- modals: add / edit ---------- */
 
   function taskFormFields(t) {
@@ -768,12 +872,70 @@
       priority: document.getElementById('f_priority').value,
       colour: document.getElementById('f_colour').value
     };
-    if (t.assignedTo === 'Stephan') {
+    if (t.assignedTo === 'Stephan' && t.kind !== 'meeting') {
       patch.budgetHours = budget;
       var worked = t.actualHours || 0;
       patch.remainingHours = Math.max(0, budget - worked);
     }
     updateTask(id, patch);
+    closeModal();
+  }
+
+  /* ---------- meetings ---------- */
+
+  function openAddMeetingModal() {
+    var timeOptions = TIME_SLOTS.map(function (time) {
+      return '<option value="' + time + '">' + time + '</option>';
+    }).join('');
+    var durationOptions = MEETING_DURATIONS.map(function (d) {
+      return '<option value="' + d.slots + '"' + (d.slots === 2 ? ' selected' : '') + '>' + d.label + '</option>';
+    }).join('');
+    openModal(
+      '<h2>New Meeting</h2>' +
+      '<label>Title<input id="m_title" type="text" placeholder="e.g. Client review" /></label>' +
+      '<label>With / Client<input id="m_client" type="text" /></label>' +
+      '<div class="row2">' +
+      '<label>Date<input id="m_date" type="date" /></label>' +
+      '<label>Start Time<select id="m_time">' + timeOptions + '</select></label>' +
+      '</div>' +
+      '<label>Duration<select id="m_duration">' + durationOptions + '</select></label>' +
+      '<p class="prompt-text">A companion to-do to schedule this on Outlook and set alarms will be added to Chanel\'s To Do automatically.</p>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
+      '<button class="btn btn-primary" onclick="submitAddMeeting()">Schedule Meeting</button>' +
+      '</div>'
+    );
+  }
+
+  function submitAddMeeting() {
+    var title = document.getElementById('m_title').value.trim();
+    var client = document.getElementById('m_client').value.trim();
+    var date = document.getElementById('m_date').value;
+    var time = document.getElementById('m_time').value;
+    var durationSlots = Number(document.getElementById('m_duration').value);
+    if (!title || !date) { alert('Title and date are required.'); return; }
+
+    var conflict = findConflict(date, time, durationSlots, null);
+    if (conflict && !confirm('This overlaps with "' + conflict.title + '". Schedule anyway?')) return;
+
+    createTask({
+      title: title,
+      client: client,
+      assignedTo: 'Stephan',
+      priority: 'Medium',
+      colour: MEETING_COLOUR,
+      kind: 'meeting',
+      scheduledDate: date,
+      startTime: time,
+      durationSlots: durationSlots
+    });
+    createTask({
+      title: 'Schedule "' + title + '" on Outlook + set alarm — ' + fmtDate(date) + ' ' + time,
+      client: client,
+      assignedTo: 'Chanel',
+      priority: 'Medium',
+      colour: SWATCHES[0]
+    });
     closeModal();
   }
 
@@ -787,11 +949,18 @@
       var sel = t.startTime === time ? ' selected' : '';
       return '<option value="' + time + '"' + sel + '>' + time + '</option>';
     }).join('');
+    var durationField = t.kind === 'meeting'
+      ? '<label>Duration<select id="s_duration">' + MEETING_DURATIONS.map(function (d) {
+          var sel = (t.durationSlots || 2) === d.slots ? ' selected' : '';
+          return '<option value="' + d.slots + '"' + sel + '>' + d.label + '</option>';
+        }).join('') + '</select></label>'
+      : '';
     openModal(
-      '<h2>Schedule Task</h2>' +
+      '<h2>Schedule ' + (t.kind === 'meeting' ? 'Meeting' : 'Task') + '</h2>' +
       '<p class="prompt-text">' + escapeHtml(t.title) + ' &mdash; ' + escapeHtml(t.client) + '</p>' +
       '<label>Date<input id="s_date" type="date" value="' + dateVal + '" /></label>' +
       '<label>Start Time<select id="s_time">' + timeOptions + '</select></label>' +
+      durationField +
       '<div class="modal-actions">' +
       '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
       '<button class="btn btn-primary" onclick="submitSchedule(' + id + ')">Schedule</button>' +
@@ -803,6 +972,15 @@
     var date = document.getElementById('s_date').value;
     var time = document.getElementById('s_time').value;
     if (!date) { alert('Please choose a date.'); return; }
+    var t = getTask(id);
+    if (t && t.kind === 'meeting') {
+      var durationSlots = Number(document.getElementById('s_duration').value);
+      var conflict = findConflict(date, time, durationSlots, id);
+      if (conflict && !confirm('This overlaps with "' + conflict.title + '". Schedule anyway?')) return;
+      updateTask(id, { scheduledDate: date, startTime: time, durationSlots: durationSlots });
+      closeModal();
+      return;
+    }
     scheduleTask(id, date, time);
   }
 
@@ -817,7 +995,8 @@
       '<div class="stat-row"><span>Budget</span><b>' + t.budgetHours + 'h</b></div>' +
       '<div class="stat-row"><span>Actual (so far)</span><b>' + t.actualHours + 'h</b></div>' +
       '<div class="stat-row"><span>Remaining</span><b>' + t.remainingHours + 'h</b></div>' +
-      '<label style="margin-top:10px;">Hours worked today<input id="lw_hours" type="number" min="0" step="0.25" value="" autofocus /></label>' +
+      '<label style="margin-top:10px;">Hours worked now<input id="lw_hours" type="number" min="0" step="0.25" value="" autofocus /></label>' +
+      '<p class="prompt-text">Each entry is timestamped, so you can log work more than once a day.</p>' +
       '<div class="modal-actions">' +
       '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
       '<button class="btn btn-primary" onclick="calcLogWork(' + id + ')">Save Work</button>' +
@@ -827,13 +1006,18 @@
 
   function calcLogWork(id) {
     var t = getTask(id);
+    if (!t) return;
     var worked = Number(document.getElementById('lw_hours').value) || 0;
-    var newActual = (t.actualHours || 0) + worked;
-    var newRemaining = Math.max(0, (t.budgetHours || 0) - newActual);
+    if (worked <= 0) { alert('Enter the hours worked.'); return; }
 
-    updateTask(id, { actualHours: newActual, remainingHours: newRemaining });
+    if (!t.workLog) t.workLog = [];
+    t.workLog.push({ id: uid(), timestamp: new Date().toISOString(), hours: worked });
+    t.actualHours = t.workLog.reduce(function (s, e) { return s + e.hours; }, 0);
+    t.remainingHours = Math.max(0, (t.budgetHours || 0) - t.actualHours);
+    saveState();
+    render();
 
-    if (newRemaining <= 0) {
+    if (t.remainingHours <= 0) {
       completeTask(id);
       return;
     }
@@ -841,8 +1025,8 @@
     openModal(
       '<h2>Continue Tomorrow?</h2>' +
       '<div class="stat-row"><span>Budget</span><b>' + t.budgetHours + 'h</b></div>' +
-      '<div class="stat-row"><span>Actual</span><b>' + newActual + 'h</b></div>' +
-      '<div class="stat-row"><span>Remaining</span><b>' + newRemaining + 'h</b></div>' +
+      '<div class="stat-row"><span>Actual</span><b>' + t.actualHours + 'h</b></div>' +
+      '<div class="stat-row"><span>Remaining</span><b>' + t.remainingHours + 'h</b></div>' +
       '<p class="prompt-text" style="margin-top:10px;">Send this task back to the Parking Lot to continue tomorrow, or mark it complete now.</p>' +
       '<div class="modal-actions spread">' +
       '<button class="btn btn-danger" onclick="finishLogWork(' + id + ', false)">Mark Complete</button>' +
@@ -860,31 +1044,135 @@
     }
   }
 
+  /* ---------- report / archive ---------- */
+
+  function downloadCsv(rows, filename) {
+    var csv = rows.map(function (row) {
+      return row.map(function (cell) {
+        var s = String(cell == null ? '' : cell);
+        if (s.indexOf(',') !== -1 || s.indexOf('"') !== -1 || s.indexOf('\n') !== -1) {
+          s = '"' + s.replace(/"/g, '""') + '"';
+        }
+        return s;
+      }).join(',');
+    }).join('\r\n');
+    var blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function billableCompleted(fromDate, toDate) {
+    return state.tasks.filter(function (t) {
+      if (t.assignedTo !== 'Stephan' || t.kind === 'meeting' || !t.completed || !t.completedAt) return false;
+      var d = t.completedAt.slice(0, 10);
+      if (fromDate && d < fromDate) return false;
+      if (toDate && d > toDate) return false;
+      return true;
+    }).sort(function (a, b) { return a.completedAt < b.completedAt ? 1 : -1; });
+  }
+
+  function openReportModal(fromDate, toDate) {
+    fromDate = fromDate || '';
+    toDate = toDate || '';
+    var filtered = billableCompleted(fromDate, toDate);
+    var totalHours = filtered.reduce(function (sum, t) { return sum + (t.actualHours || 0); }, 0);
+
+    var rowsHtml = filtered.length ? filtered.map(function (t) {
+      return '<div class="stat-row"><span>' + escapeHtml(t.client) + ' &mdash; ' + escapeHtml(t.title) +
+        '<br><span style="font-size:11px;color:var(--text-muted);font-weight:400;">' + new Date(t.completedAt).toLocaleString() + '</span></span>' +
+        '<b>' + t.actualHours + 'h</b>' +
+        '<button class="btn btn-secondary btn-sm" onclick="restoreTask(' + t.id + ')">Restore</button></div>';
+    }).join('') : '<div class="empty-note">No completed tasks in range.</div>';
+
+    var chanelDone = state.tasks.filter(function (t) { return t.assignedTo === 'Chanel' && t.chanelStatus === 'Done'; })
+      .sort(function (a, b) { return (b.completedAt || '') < (a.completedAt || '') ? -1 : 1; });
+    var chanelHtml = chanelDone.length ? chanelDone.map(function (t) {
+      return '<div class="stat-row"><span>' + escapeHtml(t.title) + (t.client ? (' &mdash; ' + escapeHtml(t.client)) : '') +
+        '<br><span style="font-size:11px;color:var(--text-muted);font-weight:400;">' + (t.completedAt ? new Date(t.completedAt).toLocaleString() : '') + '</span></span>' +
+        '<button class="btn btn-secondary btn-sm" onclick="restoreChanelTask(' + t.id + ')">Restore</button></div>';
+    }).join('') : '<div class="empty-note">No completed Chanel items yet.</div>';
+
+    openModal(
+      '<h2>Completed Items &amp; Billing Report</h2>' +
+      '<h3>Stephan &mdash; Billing Report</h3>' +
+      '<div class="row2">' +
+      '<label>From<input type="date" id="report_from" value="' + fromDate + '" /></label>' +
+      '<label>To<input type="date" id="report_to" value="' + toDate + '" /></label>' +
+      '</div>' +
+      '<div class="modal-actions" style="justify-content:flex-start;margin-top:0;">' +
+      '<button class="btn btn-secondary btn-sm" onclick="applyReportFilter()">Apply</button>' +
+      '<button class="btn btn-primary btn-sm" onclick="downloadReportCsv()">Download CSV</button>' +
+      '</div>' +
+      '<div class="stat-row"><span><b>Total billable hours</b></span><b>' + totalHours + 'h</b></div>' +
+      rowsHtml +
+      '<h3 style="margin-top:16px;">Chanel &mdash; Done Archive (all-time)</h3>' +
+      chanelHtml +
+      '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Close</button></div>',
+      true
+    );
+  }
+
+  function applyReportFilter() {
+    var f = document.getElementById('report_from').value;
+    var t = document.getElementById('report_to').value;
+    openReportModal(f, t);
+  }
+
+  function downloadReportCsv() {
+    var f = document.getElementById('report_from').value;
+    var t = document.getElementById('report_to').value;
+    var filtered = billableCompleted(f, t);
+    var rows = [['Client', 'Task', 'Budget Hours', 'Actual Hours', 'Due Date', 'Completed At']];
+    filtered.forEach(function (task) {
+      rows.push([task.client, task.title, task.budgetHours, task.actualHours, task.dueDate || '', task.completedAt]);
+    });
+    downloadCsv(rows, 'sr-planner-billing-report.csv');
+  }
+
   /* ---------- task details ---------- */
 
   function openTaskDetails(id) {
     var t = getTask(id);
     if (!t) return;
     var isStephan = t.assignedTo === 'Stephan';
-    var scheduleInfo = t.scheduledDate ? (fmtDate(t.scheduledDate) + ' ' + (t.startTime || '')) : 'Not scheduled';
+    var isMeeting = t.kind === 'meeting';
+    var scheduleInfo = t.scheduledDate
+      ? (fmtDate(t.scheduledDate) + ' ' + (t.startTime || '') + (isMeeting ? ' (' + durationLabel(t.durationSlots || 1) + ')' : ''))
+      : 'Not scheduled';
 
     var body =
       '<div class="stat-row"><span>Client</span><b>' + escapeHtml(t.client || '&mdash;') + '</b></div>' +
       '<div class="stat-row"><span>Priority</span><b>' + t.priority + '</b></div>' +
       '<div class="stat-row"><span>Due</span><b>' + (fmtDate(t.dueDate) || '&mdash;') + '</b></div>';
 
-    if (isStephan) {
+    if (isStephan && !isMeeting) {
       body +=
         '<div class="stat-row"><span>Budget</span><b>' + t.budgetHours + 'h</b></div>' +
         '<div class="stat-row"><span>Actual</span><b>' + t.actualHours + 'h</b></div>' +
-        '<div class="stat-row"><span>Remaining</span><b>' + t.remainingHours + 'h</b></div>' +
-        '<div class="stat-row"><span>Schedule</span><b>' + scheduleInfo + '</b></div>';
+        '<div class="stat-row"><span>Remaining</span><b>' + t.remainingHours + 'h</b></div>';
     }
+    if (isStephan) {
+      body += '<div class="stat-row"><span>Schedule</span><b>' + scheduleInfo + '</b></div>';
+    }
+
+    var extra = '';
+    if (isStephan && !isMeeting) {
+      extra += workLogHtml(t);
+    }
+    extra += subtaskListHtml(t);
 
     var actions = '<div class="modal-actions" style="flex-wrap:wrap;">';
     if (isStephan) {
       actions += '<button class="btn btn-light btn-sm" onclick="openScheduleModal(' + id + ')">' + (t.scheduledDate ? 'Reschedule' : 'Schedule') + '</button>';
-      actions += '<button class="btn btn-light btn-sm" onclick="openLogWorkModal(' + id + ')">Log Work</button>';
+      if (!isMeeting) {
+        actions += '<button class="btn btn-light btn-sm" onclick="openLogWorkModal(' + id + ')">Log Work</button>';
+      }
     } else if (t.chanelStatus !== 'Done') {
       actions += '<button class="btn btn-light btn-sm" onclick="continueTomorrowChanel(' + id + ')">Continue Tomorrow</button>';
     }
@@ -894,7 +1182,7 @@
     actions += '</div>';
 
     openModal(
-      '<h2>' + escapeHtml(t.title) + '</h2>' + body + subtaskListHtml(t) + actions +
+      '<h2>' + escapeHtml(t.title) + '</h2>' + body + extra + actions +
       '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Close</button></div>'
     );
   }
@@ -934,6 +1222,14 @@
     var chanelTasks = state.tasks.filter(function (t) { return t.assignedTo === 'Chanel' && !t.completed; });
     var chanelHtml = '<div class="chanel-cols">' + CHANEL_COLUMN_ORDER.map(function (status) {
       var items = chanelTasks.filter(function (t) { return (t.chanelStatus || 'To Do') === status; });
+      var doneLink = '';
+      if (status === 'Done') {
+        var totalDone = items.length;
+        items = items.slice().sort(function (a, b) { return (b.completedAt || '') < (a.completedAt || '') ? -1 : 1; }).slice(0, CHANEL_DONE_LIMIT);
+        if (totalDone > CHANEL_DONE_LIMIT) {
+          doneLink = '<div class="link-note" onclick="openReportModal()">View all ' + totalDone + ' done items &rarr;</div>';
+        }
+      }
       var cardsHtml = items.length
         ? items.map(function (t) {
             return '<div class="chanel-task" style="border-left-color:' + t.colour + '">' +
@@ -951,7 +1247,7 @@
       var quickAdd = status === 'To Do'
         ? '<div class="phone-slip-add" style="margin-bottom:6px;"><input type="text" placeholder="Quick add to-do..." onkeydown="handleChanelQuickAddKey(event)" /></div>'
         : '';
-      return '<div class="chanel-col"><h4>' + status + '</h4>' + quickAdd + cardsHtml + '</div>';
+      return '<div class="chanel-col"><h4>' + status + '</h4>' + quickAdd + cardsHtml + doneLink + '</div>';
     }).join('') + '</div>';
 
     document.getElementById('leftPanel').innerHTML =
@@ -975,9 +1271,21 @@
     var dayDates = [0, 1, 2, 3, 4].map(function (i) { return addDays(weekStart, i); });
     var dayIsos = dayDates.map(isoDate);
 
-    var scheduled = state.tasks.filter(function (t) {
+    var scheduledItems = state.tasks.filter(function (t) {
       return t.assignedTo === 'Stephan' && !t.completed && t.scheduledDate && t.startTime;
     });
+
+    function findCell(dateIso, time) {
+      for (var i = 0; i < scheduledItems.length; i++) {
+        var it = scheduledItems[i];
+        if (it.scheduledDate !== dateIso) continue;
+        var occ = occupiedSlotsFor(it);
+        if (occ.indexOf(time) !== -1) {
+          return { item: it, isStart: time === it.startTime };
+        }
+      }
+      return null;
+    }
 
     var headHtml = '<div class="head"></div>' + dayDates.map(function (d) {
       return '<div class="head">' + fmtDayHeader(d) + '</div>';
@@ -985,14 +1293,20 @@
 
     var rowsHtml = TIME_SLOTS.map(function (time) {
       var rowCells = dayIsos.map(function (dateIso) {
-        var match = scheduled.filter(function (t) { return t.scheduledDate === dateIso && t.startTime === time; })[0];
+        var found = findCell(dateIso, time);
         var inner = '';
-        if (match) {
-          inner = '<div class="task-card prio-' + match.priority + '" style="border-left-color:' + match.colour + '" draggable="true" ondragstart="handleDragStart(event,' + match.id + ')" onclick="openTaskDetails(' + match.id + ')">' +
-            '<div class="title">' + escapeHtml(match.title) + subtaskBadge(match) + '</div>' +
-            '<div class="client">' + escapeHtml(match.client) + '</div>' +
-            '<div class="hours">' + match.remainingHours + 'h left</div>' +
-            '</div>';
+        if (found) {
+          var it = found.item;
+          var kindClass = it.kind === 'meeting' ? ' kind-meeting' : '';
+          if (found.isStart) {
+            inner = '<div class="task-card prio-' + it.priority + kindClass + '" style="border-left-color:' + it.colour + '" draggable="true" ondragstart="handleDragStart(event,' + it.id + ')" onclick="openTaskDetails(' + it.id + ')">' +
+              '<div class="title">' + escapeHtml(it.title) + subtaskBadge(it) + '</div>' +
+              '<div class="client">' + escapeHtml(it.client) + '</div>' +
+              (it.kind === 'meeting' ? '<div class="hours">Meeting</div>' : '<div class="hours">' + it.remainingHours + 'h left</div>') +
+              '</div>';
+          } else {
+            inner = '<div class="task-card' + kindClass + ' continuation" style="border-left-color:' + it.colour + '" onclick="openTaskDetails(' + it.id + ')"></div>';
+          }
         }
         return '<div class="cell" ondragover="handleCellDragOver(event)" ondrop="handleCellDrop(event,\'' + dateIso + '\',\'' + time + '\')">' + inner + '</div>';
       }).join('');
@@ -1045,6 +1359,8 @@
   window.submitAddTask = submitAddTask;
   window.openEditTaskModal = openEditTaskModal;
   window.submitEditTask = submitEditTask;
+  window.openAddMeetingModal = openAddMeetingModal;
+  window.submitAddMeeting = submitAddMeeting;
   window.openScheduleModal = openScheduleModal;
   window.submitSchedule = submitSchedule;
   window.openLogWorkModal = openLogWorkModal;
@@ -1052,6 +1368,8 @@
   window.finishLogWork = finishLogWork;
   window.openTaskDetails = openTaskDetails;
   window.completeTask = completeTask;
+  window.restoreTask = restoreTask;
+  window.restoreChanelTask = restoreChanelTask;
   window.deleteTaskConfirm = deleteTaskConfirm;
   window.deleteTask = deleteTask;
   window.closeModal = closeModal;
@@ -1076,6 +1394,10 @@
   window.addSubtask = addSubtask;
   window.toggleSubtask = toggleSubtask;
   window.deleteSubtask = deleteSubtask;
+  window.deleteWorkLogEntry = deleteWorkLogEntry;
+  window.openReportModal = openReportModal;
+  window.applyReportFilter = applyReportFilter;
+  window.downloadReportCsv = downloadReportCsv;
 
   render();
 })();
