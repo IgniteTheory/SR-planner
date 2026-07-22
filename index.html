@@ -136,6 +136,8 @@
   .phone-slip-add input {
     flex: 1; font-size: 12.5px; padding: 5px 6px; border: 1px solid var(--border); border-radius: 4px; font-family: var(--sans);
   }
+  .phone-slip .convert-btn { font-size: 10.5px; color: var(--green-dark); border: 1px solid var(--green); border-radius: 3px; padding: 1px 5px; background: #fff; }
+  .phone-slip .convert-btn:hover { background: var(--green-light); }
 
   .chanel-cols { display: flex; flex-direction: column; gap: 10px; }
   .chanel-col h4 {
@@ -158,6 +160,11 @@
   .chanel-actions button.active { background: var(--green); color: #fff; border-color: var(--green); }
 
   /* Centre planner */
+  .week-nav {
+    display: flex; align-items: center; gap: 10px; margin-bottom: 10px; font-size: 12.5px; color: var(--text-muted);
+  }
+  .week-nav .week-range { font-weight: 700; color: var(--text); min-width: 160px; text-align: center; }
+
   .planner-grid {
     display: grid;
     grid-template-columns: 54px repeat(5, 1fr);
@@ -178,19 +185,20 @@
   }
   .planner-grid .head:first-child { border-left: none; }
   .planner-grid .time-label {
-    font-size: 11px;
+    font-size: 10.5px;
     color: var(--text-muted);
     text-align: right;
-    padding: 4px 6px;
+    padding: 3px 6px;
     border-top: 1px solid var(--border);
     background: #fafbfa;
   }
   .planner-grid .cell {
     border-top: 1px solid var(--border);
     border-left: 1px solid var(--border);
-    min-height: 46px;
-    padding: 3px;
+    min-height: 32px;
+    padding: 2px;
   }
+  .planner-grid .cell.drag-over { background: var(--green-light); }
   .task-card {
     background: #fff;
     border: 1px solid var(--border);
@@ -216,11 +224,22 @@
     border-radius: 6px;
     padding: 8px;
     background: #fff;
+    cursor: grab;
   }
   .parking-card .title { font-weight: 700; font-size: 13px; cursor: pointer; }
   .parking-card .client { color: var(--text-muted); font-size: 11.5px; margin-bottom: 4px; }
   .parking-card .meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
   .parking-card .actions { display: flex; gap: 6px; }
+
+  /* Sub-tasks */
+  .subtask-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12.5px; }
+  .subtask-row .txt.done { text-decoration: line-through; color: var(--text-muted); }
+  .subtask-row .txt { flex: 1; }
+  .subtask-row button { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 13px; }
+  .subtask-row button:hover { color: var(--danger); }
+  .subtask-badge {
+    background: #eef1f0; color: var(--text-muted); font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-left: 5px;
+  }
 
   /* Modal */
   .modal-overlay {
@@ -232,6 +251,7 @@
     max-height: calc(100vh - 40px); overflow-y: auto;
   }
   .modal h2 { margin: 0 0 14px; font-size: 16px; }
+  .modal h3 { font-size: 12.5px; text-transform: uppercase; letter-spacing: 0.03em; color: var(--green-dark); margin: 0 0 6px; }
   .modal label {
     display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-muted);
     margin-bottom: 10px; font-weight: 600;
@@ -247,7 +267,7 @@
     width: 22px; height: 22px; border-radius: 50%; cursor: pointer; border: 2px solid transparent;
   }
   .swatch.selected { border-color: var(--text); }
-  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+  .modal-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; flex-wrap: wrap; }
   .modal-actions.spread { justify-content: space-between; }
   .radio-group { display: flex; gap: 14px; margin-bottom: 10px; }
   .radio-group label { flex-direction: row; align-items: center; gap: 5px; font-weight: 600; color: var(--text); }
@@ -269,7 +289,7 @@
 <div class="layout">
   <div class="panel" id="leftPanel"></div>
   <div class="panel" id="centrePanel"></div>
-  <div class="panel" id="rightPanel"></div>
+  <div class="panel" id="rightPanel" ondragover="event.preventDefault()" ondrop="handleParkingDrop(event)"></div>
 </div>
 
 <div id="modalRoot"></div>
@@ -279,9 +299,21 @@
   'use strict';
 
   var STORAGE_KEY = 'srPlannerState';
-  var DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
-  var HOURS = [8, 9, 10, 11, 12, 13, 14, 15, 16];
   var SWATCHES = ['#1f7a4d', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#64748b', '#0ea5e9'];
+  var CHANEL_STATUSES = ['To Do', 'Doing', 'Done'];
+  var CHANEL_COLUMN_ORDER = ['Doing', 'To Do', 'Done'];
+
+  var TIME_SLOTS = (function () {
+    var slots = [];
+    for (var h = 8; h < 17; h++) {
+      slots.push(pad2(h) + ':00');
+      slots.push(pad2(h) + ':30');
+    }
+    return slots;
+  })();
+
+  var weekOffset = 0;
+  var pendingSlipConversionId = null;
 
   /* ---------- state ---------- */
 
@@ -297,6 +329,9 @@
       if (!parsed || !Array.isArray(parsed.tasks)) return defaultState();
       if (!Array.isArray(parsed.phoneSlips)) parsed.phoneSlips = [];
       if (typeof parsed.nextId !== 'number') parsed.nextId = 1;
+      parsed.tasks.forEach(function (t) {
+        if (!Array.isArray(t.subtasks)) t.subtasks = [];
+      });
       return parsed;
     } catch (e) {
       console.error('Failed to load saved data, starting fresh.', e);
@@ -333,8 +368,8 @@
       .replace(/"/g, '&quot;');
   }
 
-  function fmtHour(h) {
-    return (h < 10 ? '0' + h : h) + ':00';
+  function pad2(n) {
+    return n < 10 ? '0' + n : '' + n;
   }
 
   function fmtDate(d) {
@@ -342,6 +377,45 @@
     var parts = d.split('-');
     if (parts.length !== 3) return d;
     return parts[2] + '/' + parts[1] + '/' + parts[0];
+  }
+
+  function isoDate(d) {
+    return d.getFullYear() + '-' + pad2(d.getMonth() + 1) + '-' + pad2(d.getDate());
+  }
+
+  function mondayOf(date) {
+    var d = new Date(date);
+    var day = d.getDay();
+    var diff = (day === 0 ? -6 : 1 - day);
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  function addDays(date, n) {
+    var d = new Date(date);
+    d.setDate(d.getDate() + n);
+    return d;
+  }
+
+  function currentWeekStart() {
+    return addDays(mondayOf(new Date()), weekOffset * 7);
+  }
+
+  function fmtDayHeader(d) {
+    return d.toLocaleDateString(undefined, { weekday: 'short' }) + ' ' + d.getDate() + ' ' + d.toLocaleDateString(undefined, { month: 'short' });
+  }
+
+  function fmtWeekRange(start) {
+    var end = addDays(start, 4);
+    return start.getDate() + ' ' + start.toLocaleDateString(undefined, { month: 'short' }) +
+      ' - ' + end.getDate() + ' ' + end.toLocaleDateString(undefined, { month: 'short' }) + ' ' + end.getFullYear();
+  }
+
+  function subtaskBadge(t) {
+    if (!t.subtasks || !t.subtasks.length) return '';
+    var done = t.subtasks.filter(function (s) { return s.done; }).length;
+    return '<span class="subtask-badge">' + done + '/' + t.subtasks.length + '</span>';
   }
 
   /* ---------- modal ---------- */
@@ -353,6 +427,7 @@
   }
 
   function closeModal() {
+    pendingSlipConversionId = null;
     document.getElementById('modalRoot').innerHTML = '';
   }
 
@@ -371,14 +446,16 @@
       priority: data.priority || 'Medium',
       assignedTo: data.assignedTo || 'Stephan',
       colour: data.colour || SWATCHES[0],
-      day: undefined,
-      startHour: undefined,
+      scheduledDate: undefined,
+      startTime: undefined,
       completed: false,
-      chanelStatus: data.assignedTo === 'Chanel' ? 'To Do' : undefined
+      chanelStatus: data.assignedTo === 'Chanel' ? 'To Do' : undefined,
+      subtasks: []
     };
     state.tasks.push(task);
     saveState();
     render();
+    return task;
   }
 
   function updateTask(id, patch) {
@@ -409,8 +486,8 @@
     render();
   }
 
-  function scheduleTask(id, day, hour) {
-    updateTask(id, { day: day, startHour: Number(hour) });
+  function scheduleTask(id, dateIso, time) {
+    updateTask(id, { scheduledDate: dateIso, startTime: time });
     closeModal();
   }
 
@@ -422,6 +499,65 @@
   function setChanelStatus(id, status) {
     updateTask(id, { chanelStatus: status });
   }
+
+  function continueTomorrowChanel(id) {
+    var t = getTask(id);
+    if (!t) return;
+    var dup = {
+      id: uid(),
+      client: t.client,
+      title: t.title,
+      budgetHours: 0,
+      actualHours: 0,
+      remainingHours: 0,
+      dueDate: t.dueDate,
+      priority: t.priority,
+      assignedTo: 'Chanel',
+      colour: t.colour,
+      scheduledDate: undefined,
+      startTime: undefined,
+      completed: false,
+      chanelStatus: 'To Do',
+      subtasks: (t.subtasks || []).map(function (s) { return { id: uid(), text: s.text, done: false }; })
+    };
+    state.tasks.unshift(dup);
+    t.completed = true;
+    saveState();
+    closeModal();
+    render();
+  }
+
+  /* ---------- drag and drop ---------- */
+
+  function handleDragStart(e, id) {
+    e.dataTransfer.setData('text/plain', String(id));
+    e.dataTransfer.effectAllowed = 'move';
+  }
+
+  function handleCellDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }
+
+  function handleCellDrop(e, dateIso, time) {
+    e.preventDefault();
+    var id = Number(e.dataTransfer.getData('text/plain'));
+    if (!id) return;
+    scheduleTask(id, dateIso, time);
+  }
+
+  function handleParkingDrop(e) {
+    e.preventDefault();
+    var id = Number(e.dataTransfer.getData('text/plain'));
+    if (!id) return;
+    updateTask(id, { scheduledDate: undefined, startTime: undefined });
+  }
+
+  /* ---------- week navigation ---------- */
+
+  function prevWeek() { weekOffset -= 1; render(); }
+  function nextWeek() { weekOffset += 1; render(); }
+  function thisWeek() { weekOffset = 0; render(); }
 
   /* ---------- phone slips ---------- */
 
@@ -449,6 +585,81 @@
       addPhoneSlip(evt.target.value);
       evt.target.value = '';
     }
+  }
+
+  function convertPhoneSlipToTask(id) {
+    var slip = state.phoneSlips.filter(function (p) { return p.id === id; })[0];
+    if (!slip) return;
+    pendingSlipConversionId = id;
+    openAddTaskModal({ title: slip.text });
+  }
+
+  /* ---------- chanel quick add ---------- */
+
+  function handleChanelQuickAddKey(evt) {
+    if (evt.key === 'Enter') {
+      var text = evt.target.value.trim();
+      if (text) {
+        createTask({ title: text, client: '', assignedTo: 'Chanel', priority: 'Medium', colour: SWATCHES[0] });
+      }
+      evt.target.value = '';
+    }
+  }
+
+  /* ---------- sub-tasks ---------- */
+
+  function handleSubtaskKey(evt, taskId) {
+    if (evt.key === 'Enter') {
+      addSubtask(taskId, evt.target.value);
+      evt.target.value = '';
+    }
+  }
+
+  function addSubtask(taskId, text) {
+    text = (text || '').trim();
+    if (!text) return;
+    var t = getTask(taskId);
+    if (!t) return;
+    if (!t.subtasks) t.subtasks = [];
+    t.subtasks.push({ id: uid(), text: text, done: false });
+    saveState();
+    openTaskDetails(taskId);
+    render();
+  }
+
+  function toggleSubtask(taskId, subId) {
+    var t = getTask(taskId);
+    if (!t || !t.subtasks) return;
+    var s = t.subtasks.filter(function (x) { return x.id === subId; })[0];
+    if (s) s.done = !s.done;
+    saveState();
+    openTaskDetails(taskId);
+    render();
+  }
+
+  function deleteSubtask(taskId, subId) {
+    var t = getTask(taskId);
+    if (!t || !t.subtasks) return;
+    t.subtasks = t.subtasks.filter(function (x) { return x.id !== subId; });
+    saveState();
+    openTaskDetails(taskId);
+    render();
+  }
+
+  function subtaskListHtml(t) {
+    var items = t.subtasks || [];
+    var rows = items.map(function (s) {
+      return '<div class="subtask-row">' +
+        '<input type="checkbox" ' + (s.done ? 'checked' : '') + ' onchange="toggleSubtask(' + t.id + ',' + s.id + ')" />' +
+        '<span class="txt' + (s.done ? ' done' : '') + '">' + escapeHtml(s.text) + '</span>' +
+        '<button onclick="deleteSubtask(' + t.id + ',' + s.id + ')" title="Delete">&times;</button>' +
+        '</div>';
+    }).join('') || '<div class="empty-note">No sub-tasks.</div>';
+
+    return '<h3>Sub-tasks</h3>' + rows +
+      '<div class="phone-slip-add">' +
+      '<input type="text" placeholder="Add sub-task..." onkeydown="handleSubtaskKey(event,' + t.id + ')" />' +
+      '</div>';
   }
 
   /* ---------- modals: add / edit ---------- */
@@ -498,10 +709,10 @@
     document.getElementById('f_budget_wrap').style.display = assignedTo === 'Chanel' ? 'none' : 'flex';
   }
 
-  function openAddTaskModal() {
+  function openAddTaskModal(prefill) {
     openModal(
       '<h2>New Task</h2>' +
-      taskFormFields({}) +
+      taskFormFields(prefill || {}) +
       '<div class="modal-actions">' +
       '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
       '<button class="btn btn-primary" onclick="submitAddTask()">Add Task</button>' +
@@ -523,6 +734,11 @@
       assignedTo: assignedTo,
       colour: document.getElementById('f_colour').value
     });
+    if (pendingSlipConversionId !== null) {
+      var slipId = pendingSlipConversionId;
+      pendingSlipConversionId = null;
+      deletePhoneSlip(slipId);
+    }
     closeModal();
   }
 
@@ -566,19 +782,16 @@
   function openScheduleModal(id) {
     var t = getTask(id);
     if (!t) return;
-    var dayOptions = DAYS.map(function (d) {
-      var sel = t.day === d ? ' selected' : '';
-      return '<option value="' + d + '"' + sel + '>' + d + '</option>';
-    }).join('');
-    var hourOptions = HOURS.map(function (h) {
-      var sel = t.startHour === h ? ' selected' : '';
-      return '<option value="' + h + '"' + sel + '>' + fmtHour(h) + '</option>';
+    var dateVal = t.scheduledDate || '';
+    var timeOptions = TIME_SLOTS.map(function (time) {
+      var sel = t.startTime === time ? ' selected' : '';
+      return '<option value="' + time + '"' + sel + '>' + time + '</option>';
     }).join('');
     openModal(
       '<h2>Schedule Task</h2>' +
       '<p class="prompt-text">' + escapeHtml(t.title) + ' &mdash; ' + escapeHtml(t.client) + '</p>' +
-      '<label>Day<select id="s_day">' + dayOptions + '</select></label>' +
-      '<label>Start Time<select id="s_hour">' + hourOptions + '</select></label>' +
+      '<label>Date<input id="s_date" type="date" value="' + dateVal + '" /></label>' +
+      '<label>Start Time<select id="s_time">' + timeOptions + '</select></label>' +
       '<div class="modal-actions">' +
       '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
       '<button class="btn btn-primary" onclick="submitSchedule(' + id + ')">Schedule</button>' +
@@ -587,9 +800,10 @@
   }
 
   function submitSchedule(id) {
-    var day = document.getElementById('s_day').value;
-    var hour = document.getElementById('s_hour').value;
-    scheduleTask(id, day, hour);
+    var date = document.getElementById('s_date').value;
+    var time = document.getElementById('s_time').value;
+    if (!date) { alert('Please choose a date.'); return; }
+    scheduleTask(id, date, time);
   }
 
   /* ---------- log work modal ---------- */
@@ -604,7 +818,6 @@
       '<div class="stat-row"><span>Actual (so far)</span><b>' + t.actualHours + 'h</b></div>' +
       '<div class="stat-row"><span>Remaining</span><b>' + t.remainingHours + 'h</b></div>' +
       '<label style="margin-top:10px;">Hours worked today<input id="lw_hours" type="number" min="0" step="0.25" value="" autofocus /></label>' +
-      '<div id="lw_result"></div>' +
       '<div class="modal-actions">' +
       '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
       '<button class="btn btn-primary" onclick="calcLogWork(' + id + ')">Save Work</button>' +
@@ -640,7 +853,7 @@
 
   function finishLogWork(id, continueTomorrow) {
     if (continueTomorrow) {
-      updateTask(id, { day: undefined, startHour: undefined });
+      updateTask(id, { scheduledDate: undefined, startTime: undefined });
       closeModal();
     } else {
       completeTask(id);
@@ -653,10 +866,10 @@
     var t = getTask(id);
     if (!t) return;
     var isStephan = t.assignedTo === 'Stephan';
-    var scheduleInfo = t.day ? (t.day + ' ' + fmtHour(t.startHour)) : 'Not scheduled';
+    var scheduleInfo = t.scheduledDate ? (fmtDate(t.scheduledDate) + ' ' + (t.startTime || '')) : 'Not scheduled';
 
     var body =
-      '<div class="stat-row"><span>Client</span><b>' + escapeHtml(t.client) + '</b></div>' +
+      '<div class="stat-row"><span>Client</span><b>' + escapeHtml(t.client || '&mdash;') + '</b></div>' +
       '<div class="stat-row"><span>Priority</span><b>' + t.priority + '</b></div>' +
       '<div class="stat-row"><span>Due</span><b>' + (fmtDate(t.dueDate) || '&mdash;') + '</b></div>';
 
@@ -670,8 +883,10 @@
 
     var actions = '<div class="modal-actions" style="flex-wrap:wrap;">';
     if (isStephan) {
-      actions += '<button class="btn btn-light btn-sm" onclick="openScheduleModal(' + id + ')">' + (t.day ? 'Reschedule' : 'Schedule') + '</button>';
+      actions += '<button class="btn btn-light btn-sm" onclick="openScheduleModal(' + id + ')">' + (t.scheduledDate ? 'Reschedule' : 'Schedule') + '</button>';
       actions += '<button class="btn btn-light btn-sm" onclick="openLogWorkModal(' + id + ')">Log Work</button>';
+    } else if (t.chanelStatus !== 'Done') {
+      actions += '<button class="btn btn-light btn-sm" onclick="continueTomorrowChanel(' + id + ')">Continue Tomorrow</button>';
     }
     actions += '<button class="btn btn-secondary btn-sm" onclick="openEditTaskModal(' + id + ')">Edit</button>';
     actions += '<button class="btn btn-primary btn-sm" onclick="completeTask(' + id + ')">Complete</button>';
@@ -679,7 +894,7 @@
     actions += '</div>';
 
     openModal(
-      '<h2>' + escapeHtml(t.title) + '</h2>' + body + actions +
+      '<h2>' + escapeHtml(t.title) + '</h2>' + body + subtaskListHtml(t) + actions +
       '<div class="modal-actions"><button class="btn btn-secondary" onclick="closeModal()">Close</button></div>'
     );
   }
@@ -702,7 +917,7 @@
     var topHtml = topPriorities.length
       ? '<div class="mini-list">' + topPriorities.map(function (t) {
           return '<div class="mini-task" style="border-left-color:' + t.colour + '" onclick="openTaskDetails(' + t.id + ')">' +
-            '<div class="t">' + escapeHtml(t.title) + '</div>' +
+            '<div class="t">' + escapeHtml(t.title) + subtaskBadge(t) + '</div>' +
             '<div class="c">' + escapeHtml(t.client) + '</div></div>';
         }).join('') + '</div>'
       : '<div class="empty-note">No high priority tasks.</div>';
@@ -711,28 +926,32 @@
       return '<div class="phone-slip' + (p.done ? ' done' : '') + '">' +
         '<input type="checkbox" ' + (p.done ? 'checked' : '') + ' onchange="togglePhoneSlip(' + p.id + ')" />' +
         '<span class="txt">' + escapeHtml(p.text) + '</span>' +
+        '<button class="convert-btn" onclick="convertPhoneSlipToTask(' + p.id + ')" title="Convert to task">&rarr; Task</button>' +
         '<button onclick="deletePhoneSlip(' + p.id + ')" title="Delete">&times;</button>' +
         '</div>';
     }).join('') || '<div class="empty-note">No phone slips.</div>';
 
     var chanelTasks = state.tasks.filter(function (t) { return t.assignedTo === 'Chanel' && !t.completed; });
-    var chanelStatuses = ['To Do', 'Doing', 'Done'];
-    var chanelHtml = '<div class="chanel-cols">' + chanelStatuses.map(function (status) {
+    var chanelHtml = '<div class="chanel-cols">' + CHANEL_COLUMN_ORDER.map(function (status) {
       var items = chanelTasks.filter(function (t) { return (t.chanelStatus || 'To Do') === status; });
       var cardsHtml = items.length
         ? items.map(function (t) {
             return '<div class="chanel-task" style="border-left-color:' + t.colour + '">' +
-              '<div class="t" onclick="openTaskDetails(' + t.id + ')">' + escapeHtml(t.title) + '</div>' +
+              '<div class="t" onclick="openTaskDetails(' + t.id + ')">' + escapeHtml(t.title) + subtaskBadge(t) + '</div>' +
               (t.client ? '<div class="c">' + escapeHtml(t.client) + '</div>' : '') +
               '<div class="chanel-actions">' +
-              chanelStatuses.map(function (s) {
+              CHANEL_STATUSES.map(function (s) {
                 return '<button class="' + (s === status ? 'active' : '') + '" onclick="setChanelStatus(' + t.id + ', \'' + s + '\')">' + s + '</button>';
               }).join('') +
+              (status !== 'Done' ? '<button onclick="continueTomorrowChanel(' + t.id + ')">Continue Tmrw</button>' : '') +
               '<button onclick="deleteTaskConfirm(' + t.id + ')">Del</button>' +
               '</div></div>';
           }).join('')
         : '<div class="empty-note">Empty</div>';
-      return '<div class="chanel-col"><h4>' + status + '</h4>' + cardsHtml + '</div>';
+      var quickAdd = status === 'To Do'
+        ? '<div class="phone-slip-add" style="margin-bottom:6px;"><input type="text" placeholder="Quick add to-do..." onkeydown="handleChanelQuickAddKey(event)" /></div>'
+        : '';
+      return '<div class="chanel-col"><h4>' + status + '</h4>' + quickAdd + cardsHtml + '</div>';
     }).join('') + '</div>';
 
     document.getElementById('leftPanel').innerHTML =
@@ -752,49 +971,70 @@
   }
 
   function renderCentre() {
-    var scheduled = state.tasks.filter(function (t) { return t.assignedTo === 'Stephan' && !t.completed && t.day && t.startHour != null; });
+    var weekStart = currentWeekStart();
+    var dayDates = [0, 1, 2, 3, 4].map(function (i) { return addDays(weekStart, i); });
+    var dayIsos = dayDates.map(isoDate);
 
-    var headHtml = '<div class="head"></div>' + DAYS.map(function (d) {
-      return '<div class="head">' + d + '</div>';
+    var scheduled = state.tasks.filter(function (t) {
+      return t.assignedTo === 'Stephan' && !t.completed && t.scheduledDate && t.startTime;
+    });
+
+    var headHtml = '<div class="head"></div>' + dayDates.map(function (d) {
+      return '<div class="head">' + fmtDayHeader(d) + '</div>';
     }).join('');
 
-    var rowsHtml = HOURS.map(function (h) {
-      var rowCells = DAYS.map(function (d) {
-        var match = scheduled.find ? scheduled.find(function (t) { return t.day === d && t.startHour === h; }) :
-          scheduled.filter(function (t) { return t.day === d && t.startHour === h; })[0];
-        if (!match) return '<div class="cell"></div>';
-        return '<div class="cell"><div class="task-card prio-' + match.priority + '" style="border-left-color:' + match.colour + '" onclick="openTaskDetails(' + match.id + ')">' +
-          '<div class="title">' + escapeHtml(match.title) + '</div>' +
-          '<div class="client">' + escapeHtml(match.client) + '</div>' +
-          '<div class="hours">' + match.remainingHours + 'h left</div>' +
-          '</div></div>';
+    var rowsHtml = TIME_SLOTS.map(function (time) {
+      var rowCells = dayIsos.map(function (dateIso) {
+        var match = scheduled.filter(function (t) { return t.scheduledDate === dateIso && t.startTime === time; })[0];
+        var inner = '';
+        if (match) {
+          inner = '<div class="task-card prio-' + match.priority + '" style="border-left-color:' + match.colour + '" draggable="true" ondragstart="handleDragStart(event,' + match.id + ')" onclick="openTaskDetails(' + match.id + ')">' +
+            '<div class="title">' + escapeHtml(match.title) + subtaskBadge(match) + '</div>' +
+            '<div class="client">' + escapeHtml(match.client) + '</div>' +
+            '<div class="hours">' + match.remainingHours + 'h left</div>' +
+            '</div>';
+        }
+        return '<div class="cell" ondragover="handleCellDragOver(event)" ondrop="handleCellDrop(event,\'' + dateIso + '\',\'' + time + '\')">' + inner + '</div>';
       }).join('');
-      return '<div class="time-label">' + fmtHour(h) + '</div>' + rowCells;
+      return '<div class="time-label">' + time + '</div>' + rowCells;
     }).join('');
+
+    var navHtml = '<div class="week-nav">' +
+      '<button class="btn btn-secondary btn-sm" onclick="prevWeek()">&lsaquo; Prev</button>' +
+      '<span class="week-range">' + fmtWeekRange(weekStart) + (weekOffset === 0 ? ' (This Week)' : '') + '</span>' +
+      '<button class="btn btn-secondary btn-sm" onclick="nextWeek()">Next &rsaquo;</button>' +
+      (weekOffset !== 0 ? '<button class="btn btn-light btn-sm" onclick="thisWeek()">Today</button>' : '') +
+      '</div>';
 
     document.getElementById('centrePanel').innerHTML =
-      '<h2>Weekly Planner</h2>' +
+      '<h2>Weekly Planner</h2>' + navHtml +
       '<div class="planner-grid">' + headHtml + rowsHtml + '</div>';
   }
 
   function renderRight() {
     var parking = state.tasks.filter(function (t) {
-      return t.assignedTo === 'Stephan' && !t.completed && !t.day;
+      return t.assignedTo === 'Stephan' && !t.completed && !t.scheduledDate;
+    }).sort(function (a, b) {
+      if (a.dueDate && b.dueDate) return a.dueDate < b.dueDate ? -1 : (a.dueDate > b.dueDate ? 1 : 0);
+      if (a.dueDate) return -1;
+      if (b.dueDate) return 1;
+      return a.id - b.id;
     });
 
     var html = parking.length
       ? '<div class="parking-list">' + parking.map(function (t) {
-          return '<div class="parking-card" style="border-left:4px solid ' + t.colour + '">' +
-            '<div class="title" onclick="openTaskDetails(' + t.id + ')">' + escapeHtml(t.title) + '</div>' +
+          return '<div class="parking-card" draggable="true" ondragstart="handleDragStart(event,' + t.id + ')" style="border-left:4px solid ' + t.colour + '">' +
+            '<div class="title" onclick="openTaskDetails(' + t.id + ')">' + escapeHtml(t.title) + subtaskBadge(t) + '</div>' +
             '<div class="client">' + escapeHtml(t.client) + '</div>' +
             '<div class="meta"><span>' + t.priority + '</span><span>' + t.remainingHours + 'h left</span></div>' +
+            (t.dueDate ? '<div class="meta"><span>Due ' + fmtDate(t.dueDate) + '</span><span></span></div>' : '') +
             '<div class="actions">' +
             '<button class="btn btn-primary btn-sm" onclick="openScheduleModal(' + t.id + ')">Schedule</button>' +
             '<button class="btn btn-secondary btn-sm" onclick="openEditTaskModal(' + t.id + ')">Edit</button>' +
             '<button class="btn btn-danger btn-sm" onclick="deleteTaskConfirm(' + t.id + ')">Delete</button>' +
             '</div></div>';
         }).join('') + '</div>'
-      : '<div class="empty-note">Parking Lot is empty. Add a task to get started.</div>';
+      : '<div class="empty-note">Parking Lot is empty. Drag a task here, or add a new one.</div>';
 
     document.getElementById('rightPanel').innerHTML = '<h2>Parking Lot</h2>' + html;
   }
@@ -821,7 +1061,21 @@
   window.togglePhoneSlip = togglePhoneSlip;
   window.deletePhoneSlip = deletePhoneSlip;
   window.handlePhoneSlipKey = handlePhoneSlipKey;
+  window.convertPhoneSlipToTask = convertPhoneSlipToTask;
   window.setChanelStatus = setChanelStatus;
+  window.continueTomorrowChanel = continueTomorrowChanel;
+  window.handleChanelQuickAddKey = handleChanelQuickAddKey;
+  window.handleDragStart = handleDragStart;
+  window.handleCellDragOver = handleCellDragOver;
+  window.handleCellDrop = handleCellDrop;
+  window.handleParkingDrop = handleParkingDrop;
+  window.prevWeek = prevWeek;
+  window.nextWeek = nextWeek;
+  window.thisWeek = thisWeek;
+  window.handleSubtaskKey = handleSubtaskKey;
+  window.addSubtask = addSubtask;
+  window.toggleSubtask = toggleSubtask;
+  window.deleteSubtask = deleteSubtask;
 
   render();
 })();
