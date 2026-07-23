@@ -189,6 +189,8 @@
     color: var(--green-dark);
   }
   .planner-grid .head:first-child { border-left: none; }
+  .planner-grid .head.today { background: var(--green); color: #fff; }
+  .planner-grid .cell.today-col { background: #fbfdfc; }
   .planner-grid .time-label {
     font-size: 10.5px;
     color: var(--text-muted);
@@ -223,6 +225,32 @@
   .task-card.prio-Low { border-left-color: #8ea0b3; }
   .task-card.kind-meeting { background: var(--meeting-bg); border-left-color: var(--meeting); }
   .task-card.continuation { padding: 2px; opacity: 0.5; }
+  .task-card.done, .chanel-task.done {
+    background: #eef0ef !important; border-left-color: #9aa3a0 !important; opacity: 0.65;
+  }
+  .task-card.done .title, .task-card.done .client, .task-card.done .hours, .task-card.done .location,
+  .chanel-task.done .t, .chanel-task.done .c {
+    text-decoration: line-through; color: var(--text-muted) !important;
+  }
+  .task-card .location { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; }
+
+  /* Today (day) view toggle + agenda */
+  .view-toggle { display: flex; gap: 6px; }
+  .view-toggle button.active { background: var(--green); color: #fff; border-color: var(--green); }
+  .agenda-list { display: flex; flex-direction: column; gap: 8px; }
+  .agenda-item {
+    display: flex; gap: 10px; border: 1px solid var(--border); border-left: 4px solid var(--green);
+    border-radius: 6px; padding: 8px 10px; background: #fff; cursor: pointer;
+  }
+  .agenda-item:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+  .agenda-item.kind-meeting { background: var(--meeting-bg); border-left-color: var(--meeting); }
+  .agenda-item.prio-High { border-left-color: var(--danger); }
+  .agenda-item.prio-Medium { border-left-color: var(--amber); }
+  .agenda-item.prio-Low { border-left-color: #8ea0b3; }
+  .agenda-time { font-weight: 700; font-size: 12.5px; color: var(--text-muted); min-width: 50px; }
+  .agenda-item .body { flex: 1; }
+  .agenda-item .title2 { font-weight: 700; font-size: 13px; }
+  .agenda-item .meta2 { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
 
   /* Right panel: parking lot */
   .parking-list { display: flex; flex-direction: column; gap: 8px; }
@@ -264,10 +292,11 @@
     display: flex; flex-direction: column; gap: 3px; font-size: 12px; color: var(--text-muted);
     margin-bottom: 10px; font-weight: 600;
   }
-  .modal input, .modal select {
+  .modal input, .modal select, .modal textarea {
     font-family: var(--sans); font-size: 13.5px; padding: 7px 9px; border: 1px solid var(--border);
     border-radius: 5px; color: var(--text); font-weight: 400;
   }
+  .modal textarea { resize: vertical; min-height: 56px; }
   .row2 { display: flex; gap: 10px; }
   .row2 > label { flex: 1; }
   .swatches { display: flex; gap: 6px; flex-wrap: wrap; }
@@ -290,6 +319,7 @@
   <h1>SR Planner</h1>
   <div class="actions">
     <span class="date" id="todayLabel"></span>
+    <button class="btn btn-light" id="alarmToggleBtn" onclick="toggleAlarms()">🔕 Alarms: Off</button>
     <button class="btn btn-light" onclick="openReportModal()">Report</button>
     <button class="btn btn-light" onclick="openAddMeetingModal()">+ Add Meeting</button>
     <button class="btn btn-light" onclick="openAddTaskModal()">+ Add Task</button>
@@ -338,11 +368,12 @@
 
   var weekOffset = 0;
   var pendingSlipConversionId = null;
+  var centreView = 'week';
 
   /* ---------- state ---------- */
 
   function defaultState() {
-    return { nextId: 1, tasks: [], phoneSlips: [] };
+    return { nextId: 1, tasks: [], phoneSlips: [], settings: { alarmsEnabled: false, alarmLeadMinutes: 10 } };
   }
 
   function loadState() {
@@ -353,10 +384,15 @@
       if (!parsed || !Array.isArray(parsed.tasks)) return defaultState();
       if (!Array.isArray(parsed.phoneSlips)) parsed.phoneSlips = [];
       if (typeof parsed.nextId !== 'number') parsed.nextId = 1;
+      if (!parsed.settings) parsed.settings = { alarmsEnabled: false, alarmLeadMinutes: 10 };
+      if (typeof parsed.settings.alarmsEnabled !== 'boolean') parsed.settings.alarmsEnabled = false;
+      if (typeof parsed.settings.alarmLeadMinutes !== 'number') parsed.settings.alarmLeadMinutes = 10;
       parsed.tasks.forEach(function (t) {
         if (!Array.isArray(t.subtasks)) t.subtasks = [];
         if (!Array.isArray(t.workLog)) t.workLog = [];
         if (!t.kind) t.kind = 'task';
+        if (!t.location) t.location = '';
+        if (!t.agenda) t.agenda = '';
       });
       return parsed;
     } catch (e) {
@@ -502,6 +538,8 @@
       scheduledDate: data.scheduledDate,
       startTime: data.startTime,
       durationSlots: data.durationSlots,
+      location: data.location || '',
+      agenda: data.agenda || '',
       completed: false,
       completedAt: undefined,
       chanelStatus: data.assignedTo === 'Chanel' ? 'To Do' : undefined,
@@ -559,6 +597,33 @@
   function restoreTask(id) {
     updateTask(id, { completed: false, completedAt: undefined });
     reopenReport();
+  }
+
+  var lastCompletedMeetingClient = '';
+
+  function completeMeetingThenPrompt(id) {
+    var t = getTask(id);
+    if (!t) return;
+    lastCompletedMeetingClient = t.client || '';
+    var title = t.title;
+    completeTask(id);
+    openModal(
+      '<h2>Meeting Completed</h2>' +
+      '<p class="prompt-text">Add a follow-up task for &ldquo;' + escapeHtml(title) + '&rdquo;?</p>' +
+      '<div class="modal-actions">' +
+      '<button class="btn btn-secondary" onclick="closeModal()">No, Skip</button>' +
+      '<button class="btn btn-primary" onclick="openFollowUpTaskModal()">Add Follow-up Task</button>' +
+      '</div>'
+    );
+  }
+
+  function openFollowUpTaskModal() {
+    openAddTaskModal({ client: lastCompletedMeetingClient });
+  }
+
+  function restoreTaskInline(id) {
+    updateTask(id, { completed: false, completedAt: undefined });
+    closeModal();
   }
 
   function setChanelStatus(id, status) {
@@ -639,6 +704,12 @@
   function prevWeek() { weekOffset -= 1; render(); }
   function nextWeek() { weekOffset += 1; render(); }
   function thisWeek() { weekOffset = 0; render(); }
+
+  function setCentreView(view) {
+    centreView = view;
+    if (view === 'today') weekOffset = 0;
+    render();
+  }
 
   /* ---------- phone slips ---------- */
 
@@ -773,6 +844,7 @@
     var assignedTo = t.assignedTo || 'Stephan';
     var priority = t.priority || 'Medium';
     var colour = t.colour || SWATCHES[0];
+    var isMeeting = t.kind === 'meeting';
     var stephanChecked = assignedTo === 'Stephan' ? 'checked' : '';
     var chanelChecked = assignedTo === 'Chanel' ? 'checked' : '';
 
@@ -780,6 +852,11 @@
       var sel = c === colour ? ' selected' : '';
       return '<div class="swatch' + sel + '" style="background:' + c + '" onclick="selectSwatch(this,\'' + c + '\')"></div>';
     }).join('');
+
+    var meetingFields = isMeeting
+      ? '<label>Location<input id="f_location" type="text" value="' + escapeHtml(t.location || '') + '" /></label>' +
+        '<label>Agenda<textarea id="f_agenda">' + escapeHtml(t.agenda || '') + '</textarea></label>'
+      : '';
 
     return (
       '<div class="radio-group">' +
@@ -789,9 +866,10 @@
       '<label>Client<input id="f_client" type="text" value="' + escapeHtml(t.client || '') + '" /></label>' +
       '<label>Title<input id="f_title" type="text" value="' + escapeHtml(t.title || '') + '" /></label>' +
       '<div class="row2">' +
-      '<label id="f_budget_wrap" style="display:' + (assignedTo === 'Chanel' ? 'none' : 'flex') + '">Budget Hours<input id="f_budget" type="number" min="0" step="0.25" value="' + (t.budgetHours != null ? t.budgetHours : '') + '" /></label>' +
+      '<label id="f_budget_wrap" style="display:' + (assignedTo === 'Chanel' || isMeeting ? 'none' : 'flex') + '">Budget Hours<input id="f_budget" type="number" min="0" step="0.25" value="' + (t.budgetHours != null ? t.budgetHours : '') + '" /></label>' +
       '<label>Due Date<input id="f_due" type="date" value="' + (t.dueDate || '') + '" /></label>' +
       '</div>' +
+      meetingFields +
       '<label>Priority<select id="f_priority">' +
       ['High', 'Medium', 'Low'].map(function (p) {
         return '<option value="' + p + '"' + (p === priority ? ' selected' : '') + '>' + p + '</option>';
@@ -877,6 +955,12 @@
       var worked = t.actualHours || 0;
       patch.remainingHours = Math.max(0, budget - worked);
     }
+    if (t.kind === 'meeting') {
+      var locEl = document.getElementById('f_location');
+      var agEl = document.getElementById('f_agenda');
+      patch.location = locEl ? locEl.value.trim() : t.location;
+      patch.agenda = agEl ? agEl.value.trim() : t.agenda;
+    }
     updateTask(id, patch);
     closeModal();
   }
@@ -899,6 +983,8 @@
       '<label>Start Time<select id="m_time">' + timeOptions + '</select></label>' +
       '</div>' +
       '<label>Duration<select id="m_duration">' + durationOptions + '</select></label>' +
+      '<label>Location<input id="m_location" type="text" placeholder="e.g. Boardroom, Teams, client office" /></label>' +
+      '<label>Agenda<textarea id="m_agenda" placeholder="What needs to be covered..."></textarea></label>' +
       '<p class="prompt-text">A companion to-do to schedule this on Outlook and set alarms will be added to Chanel\'s To Do automatically.</p>' +
       '<div class="modal-actions">' +
       '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
@@ -913,6 +999,8 @@
     var date = document.getElementById('m_date').value;
     var time = document.getElementById('m_time').value;
     var durationSlots = Number(document.getElementById('m_duration').value);
+    var location = document.getElementById('m_location').value.trim();
+    var agenda = document.getElementById('m_agenda').value.trim();
     if (!title || !date) { alert('Title and date are required.'); return; }
 
     var conflict = findConflict(date, time, durationSlots, null);
@@ -927,7 +1015,9 @@
       kind: 'meeting',
       scheduledDate: date,
       startTime: time,
-      durationSlots: durationSlots
+      durationSlots: durationSlots,
+      location: location,
+      agenda: agenda
     });
     createTask({
       title: 'Schedule "' + title + '" on Outlook + set alarm — ' + fmtDate(date) + ' ' + time,
@@ -1135,6 +1225,96 @@
     downloadCsv(rows, 'sr-planner-billing-report.csv');
   }
 
+  /* ---------- alarms ---------- */
+
+  var alarmIntervalHandle = null;
+  var alertedTaskIds = {};
+
+  function renderAlarmButton() {
+    var btn = document.getElementById('alarmToggleBtn');
+    if (!btn) return;
+    btn.textContent = state.settings.alarmsEnabled ? '🔔 Alarms: On' : '🔕 Alarms: Off';
+  }
+
+  function toggleAlarms() {
+    if (!state.settings.alarmsEnabled) {
+      if (window.Notification && Notification.permission !== 'granted') {
+        Notification.requestPermission().then(function (perm) {
+          state.settings.alarmsEnabled = (perm === 'granted');
+          if (perm !== 'granted') alert('Notifications were blocked. Allow them for this site to use alarms.');
+          saveState();
+          renderAlarmButton();
+          if (state.settings.alarmsEnabled) startAlarmLoop(); else stopAlarmLoop();
+        });
+        return;
+      }
+      if (!window.Notification) {
+        alert('Your browser does not support notifications.');
+        return;
+      }
+      state.settings.alarmsEnabled = true;
+    } else {
+      state.settings.alarmsEnabled = false;
+    }
+    saveState();
+    renderAlarmButton();
+    if (state.settings.alarmsEnabled) startAlarmLoop(); else stopAlarmLoop();
+  }
+
+  function startAlarmLoop() {
+    if (alarmIntervalHandle) return;
+    checkAlarms();
+    alarmIntervalHandle = setInterval(checkAlarms, 30000);
+  }
+
+  function stopAlarmLoop() {
+    if (alarmIntervalHandle) {
+      clearInterval(alarmIntervalHandle);
+      alarmIntervalHandle = null;
+    }
+  }
+
+  function beep() {
+    try {
+      var ctx = new (window.AudioContext || window.webkitAudioContext)();
+      var osc = ctx.createOscillator();
+      var gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.frequency.value = 880;
+      gain.gain.setValueAtTime(0.15, ctx.currentTime);
+      osc.start();
+      osc.stop(ctx.currentTime + 0.35);
+    } catch (e) { /* ignore — audio isn't essential */ }
+  }
+
+  function checkAlarms() {
+    if (!state.settings.alarmsEnabled) return;
+    if (!window.Notification || Notification.permission !== 'granted') return;
+    var now = new Date();
+    var todayIso = isoDate(now);
+    var leadMs = (state.settings.alarmLeadMinutes || 10) * 60000;
+    state.tasks.forEach(function (t) {
+      if (t.assignedTo !== 'Stephan' || t.completed || !t.scheduledDate || !t.startTime) return;
+      if (t.scheduledDate !== todayIso) return;
+      if (alertedTaskIds[t.id]) return;
+      var parts = t.startTime.split(':');
+      var start = new Date(now);
+      start.setHours(Number(parts[0]), Number(parts[1]), 0, 0);
+      var diff = start.getTime() - now.getTime();
+      if (diff <= leadMs && diff > -60000) {
+        alertedTaskIds[t.id] = true;
+        var label = (t.kind === 'meeting' ? 'Meeting' : 'Task') + ' at ' + t.startTime;
+        try {
+          new Notification('SR Planner — ' + label, {
+            body: t.title + (t.client ? ' — ' + t.client : '') + (t.location ? ' @ ' + t.location : '')
+          });
+        } catch (e) { /* ignore */ }
+        beep();
+      }
+    });
+  }
+
   /* ---------- task details ---------- */
 
   function openTaskDetails(id) {
@@ -1160,8 +1340,14 @@
     if (isStephan) {
       body += '<div class="stat-row"><span>Schedule</span><b>' + scheduleInfo + '</b></div>';
     }
+    if (isMeeting && t.location) {
+      body += '<div class="stat-row"><span>Location</span><b>' + escapeHtml(t.location) + '</b></div>';
+    }
 
     var extra = '';
+    if (isMeeting && t.agenda) {
+      extra += '<h3>Agenda</h3><p style="font-size:13px;margin:0 0 10px;white-space:pre-wrap;">' + escapeHtml(t.agenda) + '</p>';
+    }
     if (isStephan && !isMeeting) {
       extra += workLogHtml(t);
     }
@@ -1177,7 +1363,11 @@
       actions += '<button class="btn btn-light btn-sm" onclick="continueTomorrowChanel(' + id + ')">Continue Tomorrow</button>';
     }
     actions += '<button class="btn btn-secondary btn-sm" onclick="openEditTaskModal(' + id + ')">Edit</button>';
-    actions += '<button class="btn btn-primary btn-sm" onclick="completeTask(' + id + ')">Complete</button>';
+    if (!t.completed) {
+      actions += '<button class="btn btn-primary btn-sm" onclick="' + (isMeeting ? 'completeMeetingThenPrompt' : 'completeTask') + '(' + id + ')">Complete</button>';
+    } else {
+      actions += '<button class="btn btn-secondary btn-sm" onclick="restoreTaskInline(' + id + ')">Reopen</button>';
+    }
     actions += '<button class="btn btn-danger btn-sm" onclick="deleteTaskConfirm(' + id + ')">Delete</button>';
     actions += '</div>';
 
@@ -1232,7 +1422,7 @@
       }
       var cardsHtml = items.length
         ? items.map(function (t) {
-            return '<div class="chanel-task" style="border-left-color:' + t.colour + '">' +
+            return '<div class="chanel-task' + (status === 'Done' ? ' done' : '') + '" style="border-left-color:' + t.colour + '">' +
               '<div class="t" onclick="openTaskDetails(' + t.id + ')">' + escapeHtml(t.title) + subtaskBadge(t) + '</div>' +
               (t.client ? '<div class="c">' + escapeHtml(t.client) + '</div>' : '') +
               '<div class="chanel-actions">' +
@@ -1266,13 +1456,35 @@
       '</div>';
   }
 
+  function viewToggleHtml() {
+    return '<div class="view-toggle">' +
+      '<button class="btn btn-secondary btn-sm' + (centreView === 'week' ? ' active' : '') + '" onclick="setCentreView(\'week\')">Week</button>' +
+      '<button class="btn btn-secondary btn-sm' + (centreView === 'today' ? ' active' : '') + '" onclick="setCentreView(\'today\')">Today Only</button>' +
+      '</div>';
+  }
+
+  function scheduledItemClasses(it) {
+    var kindClass = it.kind === 'meeting' ? ' kind-meeting' : '';
+    var doneClass = it.completed ? ' done' : '';
+    return kindClass + doneClass;
+  }
+
   function renderCentre() {
+    if (centreView === 'today') {
+      renderCentreDay();
+    } else {
+      renderCentreWeek();
+    }
+  }
+
+  function renderCentreWeek() {
     var weekStart = currentWeekStart();
+    var todayIso = isoDate(new Date());
     var dayDates = [0, 1, 2, 3, 4].map(function (i) { return addDays(weekStart, i); });
     var dayIsos = dayDates.map(isoDate);
 
     var scheduledItems = state.tasks.filter(function (t) {
-      return t.assignedTo === 'Stephan' && !t.completed && t.scheduledDate && t.startTime;
+      return t.assignedTo === 'Stephan' && t.scheduledDate && t.startTime;
     });
 
     function findCell(dateIso, time) {
@@ -1288,7 +1500,8 @@
     }
 
     var headHtml = '<div class="head"></div>' + dayDates.map(function (d) {
-      return '<div class="head">' + fmtDayHeader(d) + '</div>';
+      var iso = isoDate(d);
+      return '<div class="head' + (iso === todayIso ? ' today' : '') + '">' + fmtDayHeader(d) + '</div>';
     }).join('');
 
     var rowsHtml = TIME_SLOTS.map(function (time) {
@@ -1297,18 +1510,19 @@
         var inner = '';
         if (found) {
           var it = found.item;
-          var kindClass = it.kind === 'meeting' ? ' kind-meeting' : '';
+          var classes = scheduledItemClasses(it);
           if (found.isStart) {
-            inner = '<div class="task-card prio-' + it.priority + kindClass + '" style="border-left-color:' + it.colour + '" draggable="true" ondragstart="handleDragStart(event,' + it.id + ')" onclick="openTaskDetails(' + it.id + ')">' +
+            inner = '<div class="task-card prio-' + it.priority + classes + '" style="border-left-color:' + it.colour + '" draggable="true" ondragstart="handleDragStart(event,' + it.id + ')" onclick="openTaskDetails(' + it.id + ')">' +
               '<div class="title">' + escapeHtml(it.title) + subtaskBadge(it) + '</div>' +
               '<div class="client">' + escapeHtml(it.client) + '</div>' +
-              (it.kind === 'meeting' ? '<div class="hours">Meeting</div>' : '<div class="hours">' + it.remainingHours + 'h left</div>') +
+              (it.kind === 'meeting' ? '<div class="hours">Meeting' + (it.location ? ' &middot; ' + escapeHtml(it.location) : '') + '</div>' : '<div class="hours">' + it.remainingHours + 'h left</div>') +
               '</div>';
           } else {
-            inner = '<div class="task-card' + kindClass + ' continuation" style="border-left-color:' + it.colour + '" onclick="openTaskDetails(' + it.id + ')"></div>';
+            inner = '<div class="task-card' + classes + ' continuation" style="border-left-color:' + it.colour + '" onclick="openTaskDetails(' + it.id + ')"></div>';
           }
         }
-        return '<div class="cell" ondragover="handleCellDragOver(event)" ondrop="handleCellDrop(event,\'' + dateIso + '\',\'' + time + '\')">' + inner + '</div>';
+        var todayColClass = dateIso === todayIso ? ' today-col' : '';
+        return '<div class="cell' + todayColClass + '" ondragover="handleCellDragOver(event)" ondrop="handleCellDrop(event,\'' + dateIso + '\',\'' + time + '\')">' + inner + '</div>';
       }).join('');
       return '<div class="time-label">' + time + '</div>' + rowCells;
     }).join('');
@@ -1321,8 +1535,37 @@
       '</div>';
 
     document.getElementById('centrePanel').innerHTML =
-      '<h2>Weekly Planner</h2>' + navHtml +
+      '<div class="week-nav" style="justify-content:space-between;"><h2 style="margin:0;">Weekly Planner</h2>' + viewToggleHtml() + '</div>' +
+      navHtml +
       '<div class="planner-grid">' + headHtml + rowsHtml + '</div>';
+  }
+
+  function renderCentreDay() {
+    var todayIso = isoDate(new Date());
+    var items = state.tasks.filter(function (t) {
+      return t.assignedTo === 'Stephan' && t.scheduledDate === todayIso && t.startTime;
+    }).sort(function (a, b) { return a.startTime < b.startTime ? -1 : (a.startTime > b.startTime ? 1 : 0); });
+
+    var listHtml = items.length
+      ? '<div class="agenda-list">' + items.map(function (it) {
+          var classes = scheduledItemClasses(it);
+          var endLabel = it.kind === 'meeting'
+            ? 'Meeting &middot; ' + durationLabel(it.durationSlots || 1) + (it.location ? ' &middot; ' + escapeHtml(it.location) : '')
+            : it.remainingHours + 'h left';
+          return '<div class="agenda-item prio-' + it.priority + classes + '" onclick="openTaskDetails(' + it.id + ')">' +
+            '<div class="agenda-time">' + it.startTime + '</div>' +
+            '<div class="body">' +
+            '<div class="title2">' + escapeHtml(it.title) + subtaskBadge(it) + '</div>' +
+            '<div class="meta2">' + escapeHtml(it.client) + (it.client ? ' &middot; ' : '') + endLabel + '</div>' +
+            '</div></div>';
+        }).join('') + '</div>'
+      : '<div class="empty-note">Nothing scheduled for today.</div>';
+
+    document.getElementById('centrePanel').innerHTML =
+      '<div class="week-nav" style="justify-content:space-between;"><h2 style="margin:0;">Today &mdash; ' +
+      new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }) + '</h2>' +
+      viewToggleHtml() + '</div>' +
+      listHtml;
   }
 
   function renderRight() {
@@ -1398,8 +1641,17 @@
   window.openReportModal = openReportModal;
   window.applyReportFilter = applyReportFilter;
   window.downloadReportCsv = downloadReportCsv;
+  window.setCentreView = setCentreView;
+  window.toggleAlarms = toggleAlarms;
+  window.completeMeetingThenPrompt = completeMeetingThenPrompt;
+  window.openFollowUpTaskModal = openFollowUpTaskModal;
+  window.restoreTaskInline = restoreTaskInline;
 
   render();
+  renderAlarmButton();
+  if (state.settings.alarmsEnabled && window.Notification && Notification.permission === 'granted') {
+    startAlarmLoop();
+  }
 })();
 </script>
 </body>
