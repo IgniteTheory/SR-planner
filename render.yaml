@@ -1,9 +1,3 @@
-databases:
-  - name: sr-planner-db
-    databaseName: sr_planner
-    user: srplanner
-    plan: free
-
 services:
   - type: web
     name: sr-planner-app
@@ -12,9 +6,12 @@ services:
     buildCommand: "cd frontend && NODE_ENV=development npm ci && npm run build && cd ../backend && NODE_ENV=development npm ci && npx prisma generate && npm run build"
     startCommand: "cd backend && npx prisma migrate deploy && npx tsx prisma/seed.ts && node dist/server.js"
     envVars:
+      # Render's free tier allows only one free Postgres database per
+      # account. Rather than pay for a second one, this points at a second
+      # database (sr_planner) living inside the existing free Postgres
+      # instance that sr-action-hub-db already uses — set manually in the
+      # Render dashboard, not auto-provisioned here. See README/setup notes.
       - key: DATABASE_URL
-        fromDatabase:
-          name: sr-planner-db
-          property: connectionString
+        sync: false
       - key: JWT_SECRET
         generateValue: true
