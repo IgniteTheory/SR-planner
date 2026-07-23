@@ -307,6 +307,9 @@
   <div class="actions">
     <span class="date" id="todayLabel"></span>
     <button class="btn btn-light" id="alarmToggleBtn" onclick="toggleAlarms()">🔕 Alarms: Off</button>
+    <button class="btn btn-light" onclick="exportData()" title="Download a backup of everything you can see, to load on another PC">⬇ Export</button>
+    <button class="btn btn-light" onclick="triggerImport()" title="Load a backup exported from another PC">⬆ Import</button>
+    <input type="file" id="importFileInput" accept="application/json" style="display:none;" onchange="handleImportFile(event)" />
     <button class="btn btn-light" onclick="openReportModal()">Report</button>
     <button class="btn btn-light" onclick="openAddMeetingModal()">+ Add Meeting</button>
     <button class="btn btn-light" onclick="openAddTaskModal()">+ Add Task</button>
@@ -363,25 +366,29 @@
     return { nextId: 1, tasks: [], phoneSlips: [], settings: { alarmsEnabled: false, alarmLeadMinutes: 10 } };
   }
 
+  function sanitizeState(parsed) {
+    if (!parsed || !Array.isArray(parsed.tasks)) return null;
+    if (!Array.isArray(parsed.phoneSlips)) parsed.phoneSlips = [];
+    if (typeof parsed.nextId !== 'number') parsed.nextId = 1;
+    if (!parsed.settings) parsed.settings = { alarmsEnabled: false, alarmLeadMinutes: 10 };
+    if (typeof parsed.settings.alarmsEnabled !== 'boolean') parsed.settings.alarmsEnabled = false;
+    if (typeof parsed.settings.alarmLeadMinutes !== 'number') parsed.settings.alarmLeadMinutes = 10;
+    parsed.tasks.forEach(function (t) {
+      if (!Array.isArray(t.subtasks)) t.subtasks = [];
+      if (!Array.isArray(t.workLog)) t.workLog = [];
+      if (!t.kind) t.kind = 'task';
+      if (!t.location) t.location = '';
+      if (!t.agenda) t.agenda = '';
+    });
+    return parsed;
+  }
+
   function loadState() {
     try {
       var raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return defaultState();
-      var parsed = JSON.parse(raw);
-      if (!parsed || !Array.isArray(parsed.tasks)) return defaultState();
-      if (!Array.isArray(parsed.phoneSlips)) parsed.phoneSlips = [];
-      if (typeof parsed.nextId !== 'number') parsed.nextId = 1;
-      if (!parsed.settings) parsed.settings = { alarmsEnabled: false, alarmLeadMinutes: 10 };
-      if (typeof parsed.settings.alarmsEnabled !== 'boolean') parsed.settings.alarmsEnabled = false;
-      if (typeof parsed.settings.alarmLeadMinutes !== 'number') parsed.settings.alarmLeadMinutes = 10;
-      parsed.tasks.forEach(function (t) {
-        if (!Array.isArray(t.subtasks)) t.subtasks = [];
-        if (!Array.isArray(t.workLog)) t.workLog = [];
-        if (!t.kind) t.kind = 'task';
-        if (!t.location) t.location = '';
-        if (!t.agenda) t.agenda = '';
-      });
-      return parsed;
+      var sanitized = sanitizeState(JSON.parse(raw));
+      return sanitized || defaultState();
     } catch (e) {
       console.error('Failed to load saved data, starting fresh.', e);
       return defaultState();
@@ -392,6 +399,57 @@
 
   function saveState() {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  }
+
+  /* ---------- export / import (move data between PCs) ---------- */
+  /* SR Planner is a static file with no server — everything lives in this
+     browser's localStorage, so a different PC (or browser) starts empty.
+     Export writes a JSON snapshot of everything on screen; Import loads
+     one back in, replacing whatever is currently here. */
+
+  function exportData() {
+    var blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a');
+    a.href = url;
+    a.download = 'sr-planner-backup-' + isoDate(new Date()) + '.json';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+  function triggerImport() {
+    document.getElementById('importFileInput').click();
+  }
+
+  function handleImportFile(evt) {
+    var file = evt.target.files && evt.target.files[0];
+    evt.target.value = '';
+    if (!file) return;
+    if (!confirm('Import "' + file.name + '"? This replaces everything currently shown here on this PC.')) return;
+
+    var reader = new FileReader();
+    reader.onload = function () {
+      var sanitized;
+      try {
+        sanitized = sanitizeState(JSON.parse(reader.result));
+      } catch (e) {
+        sanitized = null;
+      }
+      if (!sanitized) {
+        alert('That file doesn\'t look like a valid SR Planner export.');
+        return;
+      }
+      state = sanitized;
+      saveState();
+      render();
+      alert('Import complete.');
+    };
+    reader.onerror = function () {
+      alert('Could not read that file.');
+    };
+    reader.readAsText(file);
   }
 
   function uid() {
@@ -1650,6 +1708,9 @@
   window.completeMeetingThenPrompt = completeMeetingThenPrompt;
   window.openFollowUpTaskModal = openFollowUpTaskModal;
   window.restoreTaskInline = restoreTaskInline;
+  window.exportData = exportData;
+  window.triggerImport = triggerImport;
+  window.handleImportFile = handleImportFile;
 
   render();
   renderAlarmButton();
