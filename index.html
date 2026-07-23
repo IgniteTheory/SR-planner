@@ -234,23 +234,10 @@
   }
   .task-card .location { font-size: 10.5px; color: var(--text-muted); margin-top: 1px; }
 
-  /* Today (day) view toggle + agenda */
+  /* Today (day) view toggle */
   .view-toggle { display: flex; gap: 6px; }
   .view-toggle button.active { background: var(--green); color: #fff; border-color: var(--green); }
-  .agenda-list { display: flex; flex-direction: column; gap: 8px; }
-  .agenda-item {
-    display: flex; gap: 10px; border: 1px solid var(--border); border-left: 4px solid var(--green);
-    border-radius: 6px; padding: 8px 10px; background: #fff; cursor: pointer;
-  }
-  .agenda-item:hover { box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
-  .agenda-item.kind-meeting { background: var(--meeting-bg); border-left-color: var(--meeting); }
-  .agenda-item.prio-High { border-left-color: var(--danger); }
-  .agenda-item.prio-Medium { border-left-color: var(--amber); }
-  .agenda-item.prio-Low { border-left-color: #8ea0b3; }
-  .agenda-time { font-weight: 700; font-size: 12.5px; color: var(--text-muted); min-width: 50px; }
-  .agenda-item .body { flex: 1; }
-  .agenda-item .title2 { font-weight: 700; font-size: 13px; }
-  .agenda-item .meta2 { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; }
+  .planner-grid.single-day { grid-template-columns: 54px 1fr; }
 
   /* Right panel: parking lot */
   .parking-list { display: flex; flex-direction: column; gap: 8px; }
@@ -839,8 +826,9 @@
 
   /* ---------- modals: add / edit ---------- */
 
-  function taskFormFields(t) {
+  function taskFormFields(t, opts) {
     t = t || {};
+    opts = opts || {};
     var assignedTo = t.assignedTo || 'Stephan';
     var priority = t.priority || 'Medium';
     var colour = t.colour || SWATCHES[0];
@@ -858,6 +846,18 @@
         '<label>Agenda<textarea id="f_agenda">' + escapeHtml(t.agenda || '') + '</textarea></label>'
       : '';
 
+    var scheduleFields = '';
+    if (opts.showSchedule && !isMeeting) {
+      var timeOptions = TIME_SLOTS.map(function (time) {
+        return '<option value="' + time + '">' + time + '</option>';
+      }).join('');
+      scheduleFields =
+        '<div class="row2" id="f_schedule_wrap" style="display:' + (assignedTo === 'Chanel' ? 'none' : 'flex') + '">' +
+        '<label>Schedule Date <span style="font-weight:400;">(optional)</span><input id="f_schedule_date" type="date" /></label>' +
+        '<label>Start Time<select id="f_schedule_time">' + timeOptions + '</select></label>' +
+        '</div>';
+    }
+
     return (
       '<div class="radio-group">' +
       '<label><input type="radio" name="assignedTo" value="Stephan" ' + stephanChecked + ' onchange="toggleBudgetField(this.value)"> Stephan</label>' +
@@ -869,6 +869,7 @@
       '<label id="f_budget_wrap" style="display:' + (assignedTo === 'Chanel' || isMeeting ? 'none' : 'flex') + '">Budget Hours<input id="f_budget" type="number" min="0" step="0.25" value="' + (t.budgetHours != null ? t.budgetHours : '') + '" /></label>' +
       '<label>Due Date<input id="f_due" type="date" value="' + (t.dueDate || '') + '" /></label>' +
       '</div>' +
+      scheduleFields +
       meetingFields +
       '<label>Priority<select id="f_priority">' +
       ['High', 'Medium', 'Low'].map(function (p) {
@@ -889,12 +890,14 @@
 
   function toggleBudgetField(assignedTo) {
     document.getElementById('f_budget_wrap').style.display = assignedTo === 'Chanel' ? 'none' : 'flex';
+    var scheduleWrap = document.getElementById('f_schedule_wrap');
+    if (scheduleWrap) scheduleWrap.style.display = assignedTo === 'Chanel' ? 'none' : 'flex';
   }
 
   function openAddTaskModal(prefill) {
     openModal(
       '<h2>New Task</h2>' +
-      taskFormFields(prefill || {}) +
+      taskFormFields(prefill || {}, { showSchedule: true }) +
       '<div class="modal-actions">' +
       '<button class="btn btn-secondary" onclick="closeModal()">Cancel</button>' +
       '<button class="btn btn-primary" onclick="submitAddTask()">Add Task</button>' +
@@ -907,6 +910,17 @@
     var title = document.getElementById('f_title').value.trim();
     var client = document.getElementById('f_client').value.trim();
     if (!title || !client) { alert('Client and Title are required.'); return; }
+
+    var scheduleDateEl = document.getElementById('f_schedule_date');
+    var scheduleTimeEl = document.getElementById('f_schedule_time');
+    var scheduleDate = (scheduleDateEl && assignedTo === 'Stephan') ? scheduleDateEl.value : '';
+    var scheduleTime = scheduleDate && scheduleTimeEl ? scheduleTimeEl.value : '';
+
+    if (scheduleDate) {
+      var conflict = findConflict(scheduleDate, scheduleTime, 1, null);
+      if (conflict && !confirm('This overlaps with "' + conflict.title + '". Schedule anyway?')) return;
+    }
+
     createTask({
       client: client,
       title: title,
@@ -914,7 +928,9 @@
       dueDate: document.getElementById('f_due').value,
       priority: document.getElementById('f_priority').value,
       assignedTo: assignedTo,
-      colour: document.getElementById('f_colour').value
+      colour: document.getElementById('f_colour').value,
+      scheduledDate: scheduleDate || undefined,
+      startTime: scheduleDate ? scheduleTime : undefined
     });
     if (pendingSlipConversionId !== null) {
       var slipId = pendingSlipConversionId;
@@ -1477,11 +1493,10 @@
     }
   }
 
-  function renderCentreWeek() {
-    var weekStart = currentWeekStart();
+  function buildPlannerGridHtml(dayDates) {
     var todayIso = isoDate(new Date());
-    var dayDates = [0, 1, 2, 3, 4].map(function (i) { return addDays(weekStart, i); });
     var dayIsos = dayDates.map(isoDate);
+    var singleDay = dayDates.length === 1;
 
     var scheduledItems = state.tasks.filter(function (t) {
       return t.assignedTo === 'Stephan' && t.scheduledDate && t.startTime;
@@ -1527,6 +1542,13 @@
       return '<div class="time-label">' + time + '</div>' + rowCells;
     }).join('');
 
+    return '<div class="planner-grid' + (singleDay ? ' single-day' : '') + '">' + headHtml + rowsHtml + '</div>';
+  }
+
+  function renderCentreWeek() {
+    var weekStart = currentWeekStart();
+    var dayDates = [0, 1, 2, 3, 4].map(function (i) { return addDays(weekStart, i); });
+
     var navHtml = '<div class="week-nav">' +
       '<button class="btn btn-secondary btn-sm" onclick="prevWeek()">&lsaquo; Prev</button>' +
       '<span class="week-range">' + fmtWeekRange(weekStart) + (weekOffset === 0 ? ' (This Week)' : '') + '</span>' +
@@ -1537,35 +1559,17 @@
     document.getElementById('centrePanel').innerHTML =
       '<div class="week-nav" style="justify-content:space-between;"><h2 style="margin:0;">Weekly Planner</h2>' + viewToggleHtml() + '</div>' +
       navHtml +
-      '<div class="planner-grid">' + headHtml + rowsHtml + '</div>';
+      buildPlannerGridHtml(dayDates);
   }
 
   function renderCentreDay() {
-    var todayIso = isoDate(new Date());
-    var items = state.tasks.filter(function (t) {
-      return t.assignedTo === 'Stephan' && t.scheduledDate === todayIso && t.startTime;
-    }).sort(function (a, b) { return a.startTime < b.startTime ? -1 : (a.startTime > b.startTime ? 1 : 0); });
-
-    var listHtml = items.length
-      ? '<div class="agenda-list">' + items.map(function (it) {
-          var classes = scheduledItemClasses(it);
-          var endLabel = it.kind === 'meeting'
-            ? 'Meeting &middot; ' + durationLabel(it.durationSlots || 1) + (it.location ? ' &middot; ' + escapeHtml(it.location) : '')
-            : it.remainingHours + 'h left';
-          return '<div class="agenda-item prio-' + it.priority + classes + '" onclick="openTaskDetails(' + it.id + ')">' +
-            '<div class="agenda-time">' + it.startTime + '</div>' +
-            '<div class="body">' +
-            '<div class="title2">' + escapeHtml(it.title) + subtaskBadge(it) + '</div>' +
-            '<div class="meta2">' + escapeHtml(it.client) + (it.client ? ' &middot; ' : '') + endLabel + '</div>' +
-            '</div></div>';
-        }).join('') + '</div>'
-      : '<div class="empty-note">Nothing scheduled for today.</div>';
+    var today = new Date();
 
     document.getElementById('centrePanel').innerHTML =
       '<div class="week-nav" style="justify-content:space-between;"><h2 style="margin:0;">Today &mdash; ' +
-      new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }) + '</h2>' +
+      today.toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'short' }) + '</h2>' +
       viewToggleHtml() + '</div>' +
-      listHtml;
+      buildPlannerGridHtml([today]);
   }
 
   function renderRight() {
