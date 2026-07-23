@@ -1,0 +1,114 @@
+// Mirrors the data model of the single-file SR Planner (index.html) exactly —
+// same fields, same workflow — just backed by Postgres instead of
+// localStorage, so Stephan and Chanel see the same board from any PC.
+// No client-management entity: "client" stays a free-text field on each task,
+// same as the app they already use.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum TaskKind {
+  TASK
+  MEETING
+}
+
+enum Priority {
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum AssignedTo {
+  STEPHAN
+  CHANEL
+}
+
+enum ChanelStatus {
+  TO_DO
+  DOING
+  DONE
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String   @unique
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+
+  @@map("users")
+}
+
+model PlannerTask {
+  id             Int           @id @default(autoincrement())
+  client         String
+  title          String
+  kind           TaskKind      @default(TASK)
+  budgetHours    Decimal       @default(0) @db.Decimal(6, 2)
+  actualHours    Decimal       @default(0) @db.Decimal(6, 2)
+  remainingHours Decimal       @default(0) @db.Decimal(6, 2)
+  dueDate        DateTime?     @db.Date
+  priority       Priority      @default(MEDIUM)
+  assignedTo     AssignedTo    @default(STEPHAN)
+  colour         String        @default("#1f7a4d")
+
+  // Scheduling — matches the weekly-grid slot model (30-min labels, e.g. "10:00")
+  scheduledDate  DateTime?     @db.Date
+  startTime      String?
+  durationSlots  Int?
+
+  // Meeting-only fields
+  location       String?
+  agenda         String?
+
+  completed      Boolean       @default(false)
+  completedAt    DateTime?
+
+  // Chanel's To Do / Doing / Done board — null for Stephan's tasks
+  chanelStatus   ChanelStatus?
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  subtasks Subtask[]
+  workLog  WorkLogEntry[]
+
+  @@map("planner_tasks")
+}
+
+model Subtask {
+  id     Int     @id @default(autoincrement())
+  taskId Int
+  text   String
+  done   Boolean @default(false)
+
+  task PlannerTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("planner_subtasks")
+}
+
+model WorkLogEntry {
+  id       Int      @id @default(autoincrement())
+  taskId   Int
+  hours    Decimal  @db.Decimal(6, 2)
+  loggedAt DateTime @default(now())
+
+  task PlannerTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("planner_worklog")
+}
+
+model PhoneSlip {
+  id        Int      @id @default(autoincrement())
+  text      String
+  done      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@map("planner_phone_slips")
+}
