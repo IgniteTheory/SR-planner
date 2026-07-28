@@ -115,6 +115,12 @@ export default function PlannerPage() {
     setModal(null);
   }
 
+  async function duplicateTask(id: number, opts: { dates?: string[]; startTime?: string | null; durationSlots?: number | null }) {
+    const res = await api.post<{ tasks: PlannerTask[] }>(`/tasks/${id}/duplicate`, opts);
+    setTasks((prev) => [...prev, ...res.tasks]);
+    return res.tasks;
+  }
+
   async function addSubtask(taskId: number, text: string) {
     const res = await api.post<{ task: PlannerTask }>(`/tasks/${taskId}/subtasks`, { text });
     setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
@@ -345,6 +351,8 @@ export default function PlannerPage() {
           }}
           onContinueTomorrowChanel={continueTomorrowChanel}
           onScheduleWithConflictCheck={scheduleWithConflictCheck}
+          onDuplicateTask={duplicateTask}
+          checkConflict={checkConflict}
           onAddSubtask={addSubtask}
           onToggleSubtask={toggleSubtask}
           onDeleteSubtask={deleteSubtask}

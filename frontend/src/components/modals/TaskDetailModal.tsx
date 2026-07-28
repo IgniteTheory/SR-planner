@@ -12,6 +12,8 @@ interface Props {
   onRestore: (task: PlannerTask) => Promise<void>;
   onContinueTomorrowChanel: (id: number) => Promise<void>;
   onScheduleWithConflictCheck: (id: number, date: string, time: string, durationSlots?: number) => Promise<boolean>;
+  onDuplicateTask: (id: number, opts: { dates?: string[]; startTime?: string | null; durationSlots?: number | null }) => Promise<PlannerTask[]>;
+  checkConflict: (scheduledDate: string, startTime: string, durationSlots: number, excludeId?: number) => Promise<PlannerTask | null>;
   onAddSubtask: (taskId: number, text: string) => Promise<void>;
   onToggleSubtask: (taskId: number, subId: number, done: boolean) => Promise<void>;
   onDeleteSubtask: (taskId: number, subId: number) => Promise<void>;
@@ -29,6 +31,8 @@ export default function TaskDetailModal({
   onRestore,
   onContinueTomorrowChanel,
   onScheduleWithConflictCheck,
+  onDuplicateTask,
+  checkConflict,
   onAddSubtask,
   onToggleSubtask,
   onDeleteSubtask,
@@ -48,6 +52,11 @@ export default function TaskDetailModal({
   const [logHours, setLogHours] = useState('');
   const [continuePrompt, setContinuePrompt] = useState(false);
   const [subtaskInput, setSubtaskInput] = useState('');
+  const [showDuplicate, setShowDuplicate] = useState(false);
+  const [duplicateDates, setDuplicateDates] = useState<string[]>([]);
+  const [duplicateDateInput, setDuplicateDateInput] = useState('');
+  const [duplicateTime, setDuplicateTime] = useState(task.startTime ?? TIME_SLOTS[0]);
+  const [duplicateDuration, setDuplicateDuration] = useState(task.durationSlots ?? 1);
 
   async function run(fn: () => Promise<unknown> | void) {
     setBusy(true);
@@ -94,6 +103,39 @@ export default function TaskDetailModal({
     });
   }
 
+  function addDuplicateDate() {
+    if (!duplicateDateInput || duplicateDates.includes(duplicateDateInput)) return;
+    setDuplicateDates((prev) => [...prev, duplicateDateInput].sort());
+    setDuplicateDateInput('');
+  }
+
+  function removeDuplicateDate(d: string) {
+    setDuplicateDates((prev) => prev.filter((x) => x !== d));
+  }
+
+  async function submitDuplicate() {
+    await run(async () => {
+      if (duplicateDates.length > 0) {
+        const conflicts: string[] = [];
+        for (const d of duplicateDates) {
+          const conflict = await checkConflict(d, duplicateTime, duplicateDuration);
+          if (conflict) conflicts.push(`${fmtDate(d)} — overlaps "${conflict.title}"`);
+        }
+        if (conflicts.length && !window.confirm(`These dates overlap existing items:\n${conflicts.join('\n')}\n\nDuplicate anyway?`)) {
+          return;
+        }
+      }
+      await onDuplicateTask(task.id, {
+        dates: duplicateDates,
+        startTime: duplicateDates.length ? duplicateTime : null,
+        durationSlots: duplicateDates.length ? duplicateDuration : null,
+      });
+      setShowDuplicate(false);
+      setDuplicateDates([]);
+      onClose();
+    });
+  }
+
   return (
     <div className="modal-overlay" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -135,6 +177,55 @@ export default function TaskDetailModal({
               </select>
             </label>
             <button className="btn btn-primary btn-sm" onClick={submitSchedule} disabled={busy}>Confirm</button>
+          </div>
+        )}
+
+        {showDuplicate && (
+          <div className="duplicate-panel" style={{ marginTop: 4, marginBottom: 10 }}>
+            <p className="prompt-text" style={{ marginBottom: 8 }}>
+              {isStephan
+                ? 'Leave dates empty for a single unscheduled copy, or add a date for each day you need it booked.'
+                : 'Creates an unscheduled copy on the To Do board.'}
+            </p>
+            {isStephan && (
+              <>
+                {duplicateDates.length > 0 && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 10 }}>
+                    {duplicateDates.map((d) => (
+                      <span key={d} className="date-chip">
+                        {fmtDate(d)}
+                        <button onClick={() => removeDuplicateDate(d)} title="Remove">×</button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="row2">
+                  <label>Add date
+                    <input type="date" value={duplicateDateInput} onChange={(e) => setDuplicateDateInput(e.target.value)} />
+                  </label>
+                  <button className="btn btn-secondary btn-sm" style={{ alignSelf: 'flex-end', marginBottom: 10 }} onClick={addDuplicateDate}>
+                    + Add Date
+                  </button>
+                </div>
+                {duplicateDates.length > 0 && (
+                  <div className="row2">
+                    <label>Start Time
+                      <select value={duplicateTime} onChange={(e) => setDuplicateTime(e.target.value)}>
+                        {TIME_SLOTS.map((t) => <option key={t} value={t}>{t}</option>)}
+                      </select>
+                    </label>
+                    <label>Duration
+                      <select value={duplicateDuration} onChange={(e) => setDuplicateDuration(Number(e.target.value))}>
+                        {DURATION_OPTIONS.map((d) => <option key={d.slots} value={d.slots}>{d.label}</option>)}
+                      </select>
+                    </label>
+                  </div>
+                )}
+              </>
+            )}
+            <button className="btn btn-primary btn-sm" onClick={submitDuplicate} disabled={busy}>
+              {duplicateDates.length > 0 ? `Duplicate to ${duplicateDates.length} date${duplicateDates.length > 1 ? 's' : ''}` : 'Duplicate'}
+            </button>
           </div>
         )}
 
@@ -208,6 +299,7 @@ export default function TaskDetailModal({
               {task.scheduledDate ? 'Reschedule' : 'Schedule'}
             </button>
           )}
+          <button className="btn btn-light btn-sm" onClick={() => setShowDuplicate((v) => !v)} disabled={busy}>Duplicate</button>
           {isStephan && !isMeeting && (
             <button className="btn btn-light btn-sm" onClick={() => { setShowLogWork((v) => !v); setContinuePrompt(false); }} disabled={busy}>Log Work</button>
           )}

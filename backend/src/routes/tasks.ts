@@ -258,6 +258,60 @@ router.post('/:id/continue-tomorrow-chanel', requireAuth, async (req, res) => {
   res.json({ task: newTask });
 });
 
+const duplicateSchema = z.object({
+  // One task is created per date given; an empty list creates a single
+  // unscheduled copy the user can drag onto the grid themselves.
+  dates: z.array(z.string()).default([]),
+  startTime: z.string().nullable().optional(),
+  durationSlots: z.number().nullable().optional()
+});
+
+router.post('/:id/duplicate', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const parsed = duplicateSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'Invalid duplicate request' });
+    return;
+  }
+  const existing = await prisma.plannerTask.findUnique({ where: { id }, include: { subtasks: true } });
+  if (!existing) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+
+  const { dates, startTime, durationSlots } = parsed.data;
+  const targets: (string | null)[] = dates.length ? dates : [null];
+
+  const created = await prisma.$transaction(
+    targets.map((scheduledDate) =>
+      prisma.plannerTask.create({
+        data: {
+          client: existing.client,
+          title: existing.title,
+          kind: existing.kind,
+          budgetHours: existing.budgetHours,
+          actualHours: toDecimal(0),
+          remainingHours: existing.budgetHours,
+          dueDate: existing.dueDate,
+          priority: existing.priority,
+          assignedTo: existing.assignedTo,
+          colour: existing.colour,
+          scheduledDate: scheduledDate ? new Date(scheduledDate) : null,
+          startTime: scheduledDate ? startTime ?? null : null,
+          durationSlots: scheduledDate ? durationSlots ?? null : null,
+          location: existing.location,
+          agenda: existing.agenda,
+          chanelStatus: existing.assignedTo === 'CHANEL' ? 'TO_DO' : null,
+          subtasks: { create: existing.subtasks.map((s) => ({ text: s.text, done: false })) }
+        },
+        include: taskInclude
+      })
+    )
+  );
+
+  res.status(201).json({ tasks: created });
+});
+
 router.delete('/:id', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
   await prisma.plannerTask.delete({ where: { id } });

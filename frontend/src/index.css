@@ -259,6 +259,17 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
   background: #eef1f0; color: var(--text-muted); font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-left: 5px;
 }
 
+/* Duplicate-task date chips */
+.date-chip {
+  display: inline-flex; align-items: center; gap: 4px; background: #eef1f0; color: var(--text);
+  font-size: 12px; padding: 2px 4px 2px 9px; border-radius: 12px;
+}
+.date-chip button {
+  border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 14px;
+  line-height: 1; padding: 2px 5px;
+}
+.date-chip button:hover { color: var(--danger); }
+
 /* Modal */
 .modal-overlay {
   position: fixed; inset: 0; background: rgba(20,30,25,0.5);
