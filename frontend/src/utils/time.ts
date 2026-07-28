@@ -1,11 +1,14 @@
 import type { PlannerTask } from '../api/types';
 
-export const MEETING_DURATIONS = [
+// Used for both meetings and tasks — any scheduled item can now book out
+// more than one 30-min slot so long-running work blocks the grid properly.
+export const DURATION_OPTIONS = [
   { label: '30 min', slots: 1 },
   { label: '1 hour', slots: 2 },
   { label: '1.5 hours', slots: 3 },
   { label: '2 hours', slots: 4 },
   { label: '3 hours', slots: 6 },
+  { label: '4 hours', slots: 8 },
 ];
 
 function pad2(n: number): string {
@@ -60,15 +63,13 @@ export function fmtWeekRange(start: Date): string {
 }
 
 export function durationLabel(slots: number): string {
-  const match = MEETING_DURATIONS.find((d) => d.slots === slots);
+  const match = DURATION_OPTIONS.find((d) => d.slots === slots);
   return match ? match.label : slots * 30 + ' min';
 }
 
-export function occupiedSlotsFor(item: Pick<PlannerTask, 'kind' | 'startTime' | 'durationSlots'>): string[] {
-  if (item.kind === 'MEETING' && item.startTime) {
-    const startIdx = TIME_SLOTS.indexOf(item.startTime);
-    if (startIdx === -1) return [item.startTime];
-    return TIME_SLOTS.slice(startIdx, startIdx + (item.durationSlots || 1));
-  }
-  return item.startTime ? [item.startTime] : [];
+export function occupiedSlotsFor(item: Pick<PlannerTask, 'startTime' | 'durationSlots'>): string[] {
+  if (!item.startTime) return [];
+  const startIdx = TIME_SLOTS.indexOf(item.startTime);
+  if (startIdx === -1) return [item.startTime];
+  return TIME_SLOTS.slice(startIdx, startIdx + (item.durationSlots || 1));
 }

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { PlannerTask } from '../../api/types';
-import { MEETING_DURATIONS, TIME_SLOTS } from '../../utils/time';
+import { DURATION_OPTIONS, TIME_SLOTS } from '../../utils/time';
 
 const MEETING_COLOUR = '#8b5cf6';
 
@@ -70,7 +70,7 @@ export default function MeetingFormModal({ title, initial, onClose, onSubmit, ch
         </div>
         <label>Duration
           <select value={durationSlots} onChange={(e) => setDurationSlots(Number(e.target.value))}>
-            {MEETING_DURATIONS.map((d) => <option key={d.slots} value={d.slots}>{d.label}</option>)}
+            {DURATION_OPTIONS.map((d) => <option key={d.slots} value={d.slots}>{d.label}</option>)}
           </select>
         </label>
         <label>Location<input value={location} onChange={(e) => setLocation(e.target.value)} placeholder="e.g. Boardroom, Teams, client office" /></label>

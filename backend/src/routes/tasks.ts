@@ -58,9 +58,7 @@ async function findConflict(dateIso: string, startTime: string, durationSlots: n
   const wanted = TIME_SLOTS.slice(startIdx, startIdx + durationSlots);
 
   for (const c of candidates) {
-    const slots = c.kind === 'MEETING'
-      ? occupiedSlots(c.startTime!, c.durationSlots || 1, TIME_SLOTS)
-      : [c.startTime!];
+    const slots = occupiedSlots(c.startTime!, c.durationSlots || 1, TIME_SLOTS);
     if (slots.some((s) => wanted.includes(s))) return c;
   }
   return null;

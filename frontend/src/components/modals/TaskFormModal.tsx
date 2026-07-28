@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { AssignedTo, PlannerTask, Priority } from '../../api/types';
-import { TIME_SLOTS } from '../../utils/time';
+import { DURATION_OPTIONS, TIME_SLOTS } from '../../utils/time';
 
 const SWATCHES = ['#1f7a4d', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#64748b', '#0ea5e9'];
 
@@ -34,6 +34,7 @@ export default function TaskFormModal({ title, initial, onClose, onSubmit, check
   const [colour, setColour] = useState(initial?.colour ?? SWATCHES[0]);
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState(TIME_SLOTS[0]);
+  const [scheduleDuration, setScheduleDuration] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -57,13 +58,14 @@ export default function TaskFormModal({ title, initial, onClose, onSubmit, check
         values.budgetHours = budgetHours ? Number(budgetHours) : 0;
       }
       if (!isEdit && scheduleDate && assignedTo === 'STEPHAN') {
-        const conflict = await checkConflict(scheduleDate, scheduleTime, 1, excludeId);
+        const conflict = await checkConflict(scheduleDate, scheduleTime, scheduleDuration, excludeId);
         if (conflict && !window.confirm(`This overlaps with "${conflict.title}". Schedule anyway?`)) {
           setSubmitting(false);
           return;
         }
         values.scheduledDate = scheduleDate;
         values.startTime = scheduleTime;
+        values.durationSlots = scheduleDuration;
       }
       await onSubmit(values);
     } catch (err) {
@@ -93,16 +95,25 @@ export default function TaskFormModal({ title, initial, onClose, onSubmit, check
         </div>
 
         {!isEdit && assignedTo === 'STEPHAN' && (
-          <div className="row2">
-            <label>Schedule Date <span style={{ fontWeight: 400 }}>(optional)</span>
-              <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
-            </label>
-            <label>Start Time
-              <select value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)}>
-                {TIME_SLOTS.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
-            </label>
-          </div>
+          <>
+            <div className="row2">
+              <label>Schedule Date <span style={{ fontWeight: 400 }}>(optional)</span>
+                <input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} />
+              </label>
+              <label>Start Time
+                <select value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)}>
+                  {TIME_SLOTS.map((t) => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </label>
+            </div>
+            {scheduleDate && (
+              <label>Duration
+                <select value={scheduleDuration} onChange={(e) => setScheduleDuration(Number(e.target.value))}>
+                  {DURATION_OPTIONS.map((d) => <option key={d.slots} value={d.slots}>{d.label}</option>)}
+                </select>
+              </label>
+            )}
+          </>
         )}
 
         <label>Priority

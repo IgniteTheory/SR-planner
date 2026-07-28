@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { PlannerTask } from '../../api/types';
-import { MEETING_DURATIONS, TIME_SLOTS, durationLabel, fmtDate } from '../../utils/time';
+import { DURATION_OPTIONS, TIME_SLOTS, durationLabel, fmtDate } from '../../utils/time';
 
 interface Props {
   task: PlannerTask;
@@ -71,7 +71,7 @@ export default function TaskDetailModal({
       return;
     }
     await run(async () => {
-      const applied = await onScheduleWithConflictCheck(task.id, scheduleDate, scheduleTime, isMeeting ? scheduleDuration : undefined);
+      const applied = await onScheduleWithConflictCheck(task.id, scheduleDate, scheduleTime, scheduleDuration);
       if (applied) setShowSchedule(false);
     });
   }
@@ -129,13 +129,11 @@ export default function TaskDetailModal({
                 </select>
               </label>
             </div>
-            {isMeeting && (
-              <label>Duration
-                <select value={scheduleDuration} onChange={(e) => setScheduleDuration(Number(e.target.value))}>
-                  {MEETING_DURATIONS.map((d) => <option key={d.slots} value={d.slots}>{d.label}</option>)}
-                </select>
-              </label>
-            )}
+            <label>Duration
+              <select value={scheduleDuration} onChange={(e) => setScheduleDuration(Number(e.target.value))}>
+                {DURATION_OPTIONS.map((d) => <option key={d.slots} value={d.slots}>{d.label}</option>)}
+              </select>
+            </label>
             <button className="btn btn-primary btn-sm" onClick={submitSchedule} disabled={busy}>Confirm</button>
           </div>
         )}
@@ -212,6 +210,12 @@ export default function TaskDetailModal({
           )}
           {isStephan && !isMeeting && (
             <button className="btn btn-light btn-sm" onClick={() => { setShowLogWork((v) => !v); setContinuePrompt(false); }} disabled={busy}>Log Work</button>
+          )}
+          {isStephan && !isMeeting && !task.completed && (
+            <button className="btn btn-light btn-sm" onClick={() => run(async () => {
+              await onUpdateTask(task.id, { scheduledDate: null, startTime: null });
+              onClose();
+            })} disabled={busy}>Continue Tomorrow</button>
           )}
           {!isStephan && task.chanelStatus !== 'DONE' && (
             <button className="btn btn-light btn-sm" onClick={() => run(() => onContinueTomorrowChanel(task.id))} disabled={busy}>Continue Tomorrow</button>
