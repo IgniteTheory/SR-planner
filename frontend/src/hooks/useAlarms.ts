@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { PlannerTask } from '../api/types';
-import { isoDate } from '../utils/time';
+import { CALL_BLOCK_TIMES, isoDate } from '../utils/time';
 
 // Alarms are a per-device browser feature (Notification permission is
 // per-browser anyway), so the on/off preference lives in localStorage here
@@ -70,8 +70,17 @@ function beep() {
   }
 }
 
+function addHalfHour(time: string): string {
+  const [hh, mm] = time.split(':').map(Number);
+  const total = hh * 60 + mm + 30;
+  const h2 = Math.floor(total / 60) % 24;
+  const m2 = total % 60;
+  return String(h2).padStart(2, '0') + ':' + String(m2).padStart(2, '0');
+}
+
 export function useAlarms(tasks: PlannerTask[]) {
   const alertedRef = useRef<Set<number>>(new Set());
+  const callBlockAlertedRef = useRef<Set<string>>(new Set());
   const [, forceRerun] = useState(0);
 
   useEffect(() => {
@@ -102,6 +111,31 @@ export function useAlarms(tasks: PlannerTask[]) {
           try {
             new Notification('SR Planner — ' + label, {
               body: t.title + (t.client ? ' — ' + t.client : '') + (t.location ? ' @ ' + t.location : ''),
+            });
+          } catch {
+            /* ignore */
+          }
+          beep();
+        }
+      }
+
+      // Standing call-back blocks aren't real tasks, so they're checked
+      // separately — fired right at the start of the block (no lead time;
+      // "return calls" is an now-do-this reminder, not something to prep for).
+      // Weekday-only, matching the grid (which never shows them on Sat/Sun).
+      const isWeekday = now.getDay() >= 1 && now.getDay() <= 5;
+      for (const time of isWeekday ? CALL_BLOCK_TIMES : []) {
+        const key = todayIso + '-' + time;
+        if (callBlockAlertedRef.current.has(key)) continue;
+        const [hh, mm] = time.split(':').map(Number);
+        const start = new Date(now);
+        start.setHours(hh, mm, 0, 0);
+        const diff = start.getTime() - now.getTime();
+        if (diff <= 0 && diff > -60000) {
+          callBlockAlertedRef.current.add(key);
+          try {
+            new Notification('SR Planner — Return calls', {
+              body: 'Standing reminder: ' + time + '–' + addHalfHour(time) + ' is set aside to return calls.',
             });
           } catch {
             /* ignore */
