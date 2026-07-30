@@ -274,6 +274,7 @@ export default function PlannerPage() {
         <TaskFormModal
           title="New Task"
           initial={modal.prefill}
+          tasks={tasks}
           onClose={() => setModal(null)}
           onSubmit={async (values) => {
             await createTask(values);
@@ -288,6 +289,7 @@ export default function PlannerPage() {
         <TaskFormModal
           title="Edit Task"
           initial={modal.task}
+          tasks={tasks}
           onClose={() => setModal(null)}
           onSubmit={async (values) => {
             await updateTask(modal.task.id, values);
@@ -301,6 +303,7 @@ export default function PlannerPage() {
       {modal?.type === 'newMeeting' && (
         <MeetingFormModal
           title="New Meeting"
+          tasks={tasks}
           onClose={() => setModal(null)}
           onSubmit={async (values) => {
             await createTask({ ...values, kind: 'MEETING', assignedTo: 'STEPHAN' });
@@ -321,6 +324,7 @@ export default function PlannerPage() {
         <MeetingFormModal
           title="Edit Meeting"
           initial={modal.task}
+          tasks={tasks}
           onClose={() => setModal(null)}
           onSubmit={async (values) => {
             await updateTask(modal.task.id, values);
@@ -334,6 +338,7 @@ export default function PlannerPage() {
       {modal?.type === 'detail' && (
         <TaskDetailModal
           task={modal.task}
+          tasks={tasks}
           onClose={() => setModal(null)}
           onEdit={(task) => setModal(task.kind === 'MEETING' ? { type: 'editMeeting', task } : { type: 'editTask', task })}
           onDelete={(task) => setModal({ type: 'deleteConfirm', task })}

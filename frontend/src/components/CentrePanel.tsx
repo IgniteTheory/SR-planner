@@ -1,6 +1,7 @@
 import { Fragment, type DragEvent } from 'react';
 import type { PlannerTask } from '../api/types';
 import {
+  CALL_BLOCK_TIMES,
   TIME_SLOTS,
   addDays,
   fmtDayHeader,
@@ -87,13 +88,19 @@ export default function CentrePanel({ tasks, weekOffset, onWeekOffsetChange, cen
               const dateIso = isoDate(d);
               const found = findCell(dateIso, time);
               const todayColClass = dateIso === todayIso ? ' today-col' : '';
+              const isCallBlock = !found && CALL_BLOCK_TIMES.includes(time);
               return (
                 <div
                   key={`${dateIso}-${time}`}
                   className={`cell${todayColClass}`}
-                  onDragOver={(e) => e.preventDefault()}
-                  onDrop={(e) => handleDrop(e, dateIso, time)}
+                  onDragOver={(e) => { if (!isCallBlock) e.preventDefault(); }}
+                  onDrop={(e) => { if (!isCallBlock) handleDrop(e, dateIso, time); }}
                 >
+                  {isCallBlock && (
+                    <div className="task-card call-block" title="Standing block — return calls">
+                      <div className="title">📞 Return calls</div>
+                    </div>
+                  )}
                   {found && found.isStart && (
                     <div
                       className={`task-card prio-${found.item.priority}${found.item.kind === 'MEETING' ? ' kind-meeting' : ''}${found.item.completed ? ' done' : ''}`}

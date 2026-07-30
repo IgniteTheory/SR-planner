@@ -1,9 +1,10 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { PlannerTask } from '../../api/types';
-import { DURATION_OPTIONS, TIME_SLOTS, durationLabel, fmtDate } from '../../utils/time';
+import { DURATION_OPTIONS, TIME_SLOTS, durationLabel, fmtDate, getBookedSlots, isStartTimeBlocked } from '../../utils/time';
 
 interface Props {
   task: PlannerTask;
+  tasks: PlannerTask[];
   onClose: () => void;
   onEdit: (task: PlannerTask) => void;
   onDelete: (task: PlannerTask) => void;
@@ -23,6 +24,7 @@ interface Props {
 
 export default function TaskDetailModal({
   task,
+  tasks,
   onClose,
   onEdit,
   onDelete,
@@ -57,6 +59,11 @@ export default function TaskDetailModal({
   const [duplicateDateInput, setDuplicateDateInput] = useState('');
   const [duplicateTime, setDuplicateTime] = useState(task.startTime ?? TIME_SLOTS[0]);
   const [duplicateDuration, setDuplicateDuration] = useState(task.durationSlots ?? 1);
+
+  const bookedSlots = useMemo(
+    () => (scheduleDate ? getBookedSlots(tasks, scheduleDate, task.id) : new Set<string>()),
+    [tasks, scheduleDate, task.id]
+  );
 
   async function run(fn: () => Promise<unknown> | void) {
     setBusy(true);
@@ -167,7 +174,10 @@ export default function TaskDetailModal({
               <label>Date<input type="date" value={scheduleDate} onChange={(e) => setScheduleDate(e.target.value)} /></label>
               <label>Start Time
                 <select value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)}>
-                  {TIME_SLOTS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {TIME_SLOTS.map((t) => {
+                    const blocked = isStartTimeBlocked(bookedSlots, t, scheduleDuration);
+                    return <option key={t} value={t} disabled={blocked}>{t}{blocked ? ' (booked)' : ''}</option>;
+                  })}
                 </select>
               </label>
             </div>

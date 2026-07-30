@@ -93,6 +93,17 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
 }
 .panel h3:first-of-type { margin-top: 0; }
 
+.collapsible-section { margin-top: 14px; }
+.collapsible-section:first-child { margin-top: 0; }
+.panel h3.collapsible-header {
+  margin: 0 0 6px; cursor: pointer; user-select: none; display: flex; align-items: center; gap: 5px;
+}
+.collapsible-header .chevron {
+  display: inline-block; font-size: 9px; color: var(--text-muted);
+  transition: transform 0.12s ease; transform: rotate(0deg);
+}
+.collapsible-header .chevron.open { transform: rotate(90deg); }
+
 /* Left panel */
 .person-block { margin-bottom: 10px; }
 .person-name {
@@ -124,12 +135,14 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
 .phone-slip {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   padding: 4px 2px;
   border-bottom: 1px dashed var(--border);
   font-size: 12.5px;
 }
 .phone-slip.done .txt { text-decoration: line-through; color: var(--text-muted); }
+.phone-slip .ts { width: 100%; padding-left: 22px; font-size: 10.5px; color: var(--text-muted); order: 5; }
 .phone-slip .txt { flex: 1; }
 .phone-slip button { border: none; background: none; cursor: pointer; color: var(--text-muted); font-size: 13px; }
 .phone-slip button:hover { color: var(--danger); }
@@ -221,6 +234,12 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
 .task-card.prio-LOW { border-left-color: #8ea0b3; }
 .task-card.kind-meeting { background: var(--meeting-bg); border-left-color: var(--meeting); }
 .task-card.continuation { padding: 2px; opacity: 0.5; }
+.task-card.call-block {
+  background: repeating-linear-gradient(45deg, #fdf3e2, #fdf3e2 6px, #fbe9cc 6px, #fbe9cc 12px);
+  border-left-color: var(--amber); border-style: dashed; cursor: default;
+}
+.task-card.call-block .title { color: var(--amber); font-weight: 600; }
+.task-card.call-block:hover { box-shadow: none; }
 .task-card.done, .chanel-task.done {
   background: #eef0ef !important; border-left-color: #9aa3a0 !important; opacity: 0.65;
 }

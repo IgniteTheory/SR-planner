@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import type { AssignedTo, PlannerTask, Priority } from '../../api/types';
-import { DURATION_OPTIONS, TIME_SLOTS } from '../../utils/time';
+import { DURATION_OPTIONS, TIME_SLOTS, getBookedSlots, isStartTimeBlocked } from '../../utils/time';
 
 const SWATCHES = ['#1f7a4d', '#3b82f6', '#f59e0b', '#ef4444', '#8b5cf6', '#14b8a6', '#64748b', '#0ea5e9'];
 
@@ -17,13 +17,14 @@ interface InitialValues {
 interface Props {
   title: string;
   initial?: InitialValues | PlannerTask;
+  tasks: PlannerTask[];
   onClose: () => void;
   onSubmit: (values: Record<string, unknown>) => Promise<void>;
   checkConflict: (scheduledDate: string, startTime: string, durationSlots: number, excludeId?: number) => Promise<PlannerTask | null>;
   excludeId?: number;
 }
 
-export default function TaskFormModal({ title, initial, onClose, onSubmit, checkConflict, excludeId }: Props) {
+export default function TaskFormModal({ title, initial, tasks, onClose, onSubmit, checkConflict, excludeId }: Props) {
   const isEdit = excludeId != null;
   const [client, setClient] = useState(initial?.client ?? '');
   const [taskTitle, setTaskTitle] = useState(initial?.title ?? '');
@@ -37,6 +38,11 @@ export default function TaskFormModal({ title, initial, onClose, onSubmit, check
   const [scheduleDuration, setScheduleDuration] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  const bookedSlots = useMemo(
+    () => (scheduleDate ? getBookedSlots(tasks, scheduleDate, excludeId) : new Set<string>()),
+    [tasks, scheduleDate, excludeId]
+  );
 
   async function handleSubmit() {
     setError(null);
@@ -102,7 +108,10 @@ export default function TaskFormModal({ title, initial, onClose, onSubmit, check
               </label>
               <label>Start Time
                 <select value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)}>
-                  {TIME_SLOTS.map((t) => <option key={t} value={t}>{t}</option>)}
+                  {TIME_SLOTS.map((t) => {
+                    const blocked = isStartTimeBlocked(bookedSlots, t, scheduleDuration);
+                    return <option key={t} value={t} disabled={blocked}>{t}{blocked ? ' (booked)' : ''}</option>;
+                  })}
                 </select>
               </label>
             </div>

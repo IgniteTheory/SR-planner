@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { ChanelStatus, PhoneSlip, PlannerTask } from '../api/types';
+import { fmtDateTime } from '../utils/time';
 
 const CHANEL_COLUMNS: { key: ChanelStatus; label: string }[] = [
   { key: 'DOING', label: 'Doing' },
@@ -21,6 +22,27 @@ interface Props {
   onContinueTomorrowChanel: (id: number) => void;
   onDeleteTask: (task: PlannerTask) => void;
   onViewAllDone: () => void;
+}
+
+function CollapsibleSection({
+  title,
+  defaultOpen = true,
+  children,
+}: {
+  title: string;
+  defaultOpen?: boolean;
+  children: ReactNode;
+}) {
+  const [open, setOpen] = useState(defaultOpen);
+  return (
+    <div className="collapsible-section">
+      <h3 className="collapsible-header" onClick={() => setOpen((v) => !v)}>
+        <span className={`chevron${open ? ' open' : ''}`}>▸</span>
+        {title}
+      </h3>
+      {open && <div className="collapsible-body">{children}</div>}
+    </div>
+  );
 }
 
 export default function LeftPanel({
@@ -61,117 +83,123 @@ export default function LeftPanel({
     <div className="panel">
       <div className="person-block">
         <div className="person-name">Stephan</div>
-        <h3>Top Priorities</h3>
-        {topPriorities.length ? (
-          <div className="mini-list">
-            {topPriorities.map((t) => (
-              <div key={t.id} className="mini-task" style={{ borderLeftColor: t.colour }} onClick={() => onSelectTask(t)}>
-                <div className="t">{t.title}{t.subtasks.length > 0 && (
-                  <span className="subtask-badge">{t.subtasks.filter((s) => s.done).length}/{t.subtasks.length}</span>
-                )}</div>
-                <div className="c">{t.client}</div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="empty-note">No high priority tasks.</div>
-        )}
 
-        <h3>Phone Slips</h3>
-        {phoneSlips.length ? (
-          phoneSlips.map((p) => (
-            <div key={p.id} className={`phone-slip${p.done ? ' done' : ''}`}>
-              <input type="checkbox" checked={p.done} onChange={() => onTogglePhoneSlip(p.id, !p.done)} />
-              <span className="txt">{p.text}</span>
-              <button className="convert-btn" onClick={() => onConvertSlipToTask(p)} title="Convert to task">→ Task</button>
-              <button onClick={() => onDeletePhoneSlip(p.id)} title="Delete">×</button>
+        <CollapsibleSection title="Top Priorities">
+          {topPriorities.length ? (
+            <div className="mini-list">
+              {topPriorities.map((t) => (
+                <div key={t.id} className="mini-task" style={{ borderLeftColor: t.colour }} onClick={() => onSelectTask(t)}>
+                  <div className="t">{t.title}{t.subtasks.length > 0 && (
+                    <span className="subtask-badge">{t.subtasks.filter((s) => s.done).length}/{t.subtasks.length}</span>
+                  )}</div>
+                  <div className="c">{t.client}</div>
+                </div>
+              ))}
             </div>
-          ))
-        ) : (
-          <div className="empty-note">No phone slips.</div>
-        )}
-        <div className="phone-slip-add">
-          <input
-            type="text"
-            placeholder="New phone slip..."
-            value={slipInput}
-            onChange={(e) => setSlipInput(e.target.value)}
-            onKeyDown={handleSlipKey}
-          />
-        </div>
+          ) : (
+            <div className="empty-note">No high priority tasks.</div>
+          )}
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Phone Slips">
+          {phoneSlips.length ? (
+            phoneSlips.map((p) => (
+              <div key={p.id} className={`phone-slip${p.done ? ' done' : ''}`}>
+                <input type="checkbox" checked={p.done} onChange={() => onTogglePhoneSlip(p.id, !p.done)} />
+                <span className="txt">{p.text}</span>
+                <span className="ts">{fmtDateTime(p.createdAt)}</span>
+                <button className="convert-btn" onClick={() => onConvertSlipToTask(p)} title="Convert to task">→ Task</button>
+                <button onClick={() => onDeletePhoneSlip(p.id)} title="Delete">×</button>
+              </div>
+            ))
+          ) : (
+            <div className="empty-note">No phone slips.</div>
+          )}
+          <div className="phone-slip-add">
+            <input
+              type="text"
+              placeholder="New phone slip..."
+              value={slipInput}
+              onChange={(e) => setSlipInput(e.target.value)}
+              onKeyDown={handleSlipKey}
+            />
+          </div>
+        </CollapsibleSection>
       </div>
 
       <hr className="divider" />
 
       <div className="person-block">
         <div className="person-name">Chanel</div>
-        <div className="chanel-cols">
-          {CHANEL_COLUMNS.map((col) => {
-            let items = chanelTasks.filter((t) => (t.chanelStatus ?? 'TO_DO') === col.key);
-            let doneLink: ReactNode = null;
-            if (col.key === 'DONE') {
-              const totalDone = items.length;
-              items = items
-                .slice()
-                .sort((a, b) => (b.completedAt ?? '') < (a.completedAt ?? '') ? -1 : 1)
-                .slice(0, CHANEL_DONE_LIMIT);
-              if (totalDone > CHANEL_DONE_LIMIT) {
-                doneLink = (
-                  <div className="link-note" onClick={onViewAllDone}>
-                    View all {totalDone} done items →
-                  </div>
-                );
-              }
-            }
-            return (
-              <div className="chanel-col" key={col.key}>
-                <h4>{col.label}</h4>
-                {col.key === 'TO_DO' && (
-                  <div className="phone-slip-add" style={{ marginBottom: 6 }}>
-                    <input
-                      type="text"
-                      placeholder="Quick add to-do..."
-                      value={quickAddInput}
-                      onChange={(e) => setQuickAddInput(e.target.value)}
-                      onKeyDown={handleQuickAddKey}
-                    />
-                  </div>
-                )}
-                {items.length ? (
-                  items.map((t) => (
-                    <div key={t.id} className={`chanel-task${col.key === 'DONE' ? ' done' : ''}`} style={{ borderLeftColor: t.colour }}>
-                      <div className="t" onClick={() => onSelectTask(t)}>
-                        {t.title}
-                        {t.subtasks.length > 0 && (
-                          <span className="subtask-badge">{t.subtasks.filter((s) => s.done).length}/{t.subtasks.length}</span>
-                        )}
-                      </div>
-                      {t.client && <div className="c">{t.client}</div>}
-                      <div className="chanel-actions">
-                        {CHANEL_COLUMNS.map((s) => (
-                          <button
-                            key={s.key}
-                            className={s.key === col.key ? 'active' : ''}
-                            onClick={() => onSetChanelStatus(t.id, s.key)}
-                          >
-                            {s.label}
-                          </button>
-                        ))}
-                        {col.key !== 'DONE' && (
-                          <button onClick={() => onContinueTomorrowChanel(t.id)}>Continue Tmrw</button>
-                        )}
-                        <button onClick={() => onDeleteTask(t)}>Del</button>
-                      </div>
+        <CollapsibleSection title="To Do List">
+          <div className="chanel-cols">
+            {CHANEL_COLUMNS.map((col) => {
+              let items = chanelTasks.filter((t) => (t.chanelStatus ?? 'TO_DO') === col.key);
+              let doneLink: ReactNode = null;
+              if (col.key === 'DONE') {
+                const totalDone = items.length;
+                items = items
+                  .slice()
+                  .sort((a, b) => (b.completedAt ?? '') < (a.completedAt ?? '') ? -1 : 1)
+                  .slice(0, CHANEL_DONE_LIMIT);
+                if (totalDone > CHANEL_DONE_LIMIT) {
+                  doneLink = (
+                    <div className="link-note" onClick={onViewAllDone}>
+                      View all {totalDone} done items →
                     </div>
-                  ))
-                ) : (
-                  <div className="empty-note">Empty</div>
-                )}
-                {doneLink}
-              </div>
-            );
-          })}
-        </div>
+                  );
+                }
+              }
+              return (
+                <div className="chanel-col" key={col.key}>
+                  <h4>{col.label}</h4>
+                  {col.key === 'TO_DO' && (
+                    <div className="phone-slip-add" style={{ marginBottom: 6 }}>
+                      <input
+                        type="text"
+                        placeholder="Quick add to-do..."
+                        value={quickAddInput}
+                        onChange={(e) => setQuickAddInput(e.target.value)}
+                        onKeyDown={handleQuickAddKey}
+                      />
+                    </div>
+                  )}
+                  {items.length ? (
+                    items.map((t) => (
+                      <div key={t.id} className={`chanel-task${col.key === 'DONE' ? ' done' : ''}`} style={{ borderLeftColor: t.colour }}>
+                        <div className="t" onClick={() => onSelectTask(t)}>
+                          {t.title}
+                          {t.subtasks.length > 0 && (
+                            <span className="subtask-badge">{t.subtasks.filter((s) => s.done).length}/{t.subtasks.length}</span>
+                          )}
+                        </div>
+                        {t.client && <div className="c">{t.client}</div>}
+                        <div className="chanel-actions">
+                          {CHANEL_COLUMNS.map((s) => (
+                            <button
+                              key={s.key}
+                              className={s.key === col.key ? 'active' : ''}
+                              onClick={() => onSetChanelStatus(t.id, s.key)}
+                            >
+                              {s.label}
+                            </button>
+                          ))}
+                          {col.key !== 'DONE' && (
+                            <button onClick={() => onContinueTomorrowChanel(t.id)}>Continue Tmrw</button>
+                          )}
+                          <button onClick={() => onDeleteTask(t)}>Del</button>
+                        </div>
+                      </div>
+                    ))
+                  ) : (
+                    <div className="empty-note">Empty</div>
+                  )}
+                  {doneLink}
+                </div>
+              );
+            })}
+          </div>
+        </CollapsibleSection>
       </div>
     </div>
   );

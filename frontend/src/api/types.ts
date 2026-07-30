@@ -53,4 +53,5 @@ export interface PhoneSlip {
   id: number;
   text: string;
   done: boolean;
+  createdAt: string;
 }

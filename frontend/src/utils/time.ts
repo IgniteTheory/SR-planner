@@ -73,3 +73,40 @@ export function occupiedSlotsFor(item: Pick<PlannerTask, 'startTime' | 'duration
   if (startIdx === -1) return [item.startTime];
   return TIME_SLOTS.slice(startIdx, startIdx + (item.durationSlots || 1));
 }
+
+export function fmtDateTime(iso: string): string {
+  const d = new Date(iso);
+  return d.toLocaleDateString(undefined, { day: '2-digit', month: 'short' }) +
+    ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+}
+
+// Every weekday gets two standing slots reserved to return calls — always
+// treated as booked when scheduling, and shown on the grid as a reminder.
+export const CALL_BLOCK_TIMES = ['09:30', '13:30'];
+
+// Slots already taken on a given date for Stephan's board, seeded with the
+// standing call-back blocks — used to grey out Start Time options so a
+// double-booking can't be picked in the first place. excludeId lets an
+// item being rescheduled ignore its own current slot.
+export function getBookedSlots(
+  tasks: PlannerTask[],
+  dateIso: string,
+  excludeId?: number
+): Set<string> {
+  const booked = new Set<string>(CALL_BLOCK_TIMES);
+  for (const t of tasks) {
+    if (t.assignedTo !== 'STEPHAN' || t.completed || t.id === excludeId) continue;
+    if (t.scheduledDate?.slice(0, 10) !== dateIso || !t.startTime) continue;
+    for (const slot of occupiedSlotsFor(t)) booked.add(slot);
+  }
+  return booked;
+}
+
+export function isStartTimeBlocked(booked: Set<string>, startTime: string, durationSlots: number): boolean {
+  const startIdx = TIME_SLOTS.indexOf(startTime);
+  if (startIdx === -1) return false;
+  for (let i = startIdx; i < startIdx + durationSlots; i++) {
+    if (booked.has(TIME_SLOTS[i])) return true;
+  }
+  return false;
+}
