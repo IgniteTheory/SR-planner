@@ -7,6 +7,8 @@ const CHANEL_COLUMNS: { key: ChanelStatus; label: string }[] = [
   { key: 'TO_DO', label: 'To Do' },
   { key: 'DONE', label: 'Done' },
 ];
+const CHANEL_TODO_COLUMNS = CHANEL_COLUMNS.filter((c) => c.key !== 'DONE');
+const CHANEL_DONE_COLUMN = CHANEL_COLUMNS.find((c) => c.key === 'DONE')!;
 const CHANEL_DONE_LIMIT = 3;
 
 interface Props {
@@ -79,6 +81,72 @@ export default function LeftPanel({
     }
   }
 
+  function renderChanelColumn(col: { key: ChanelStatus; label: string }) {
+    let items = chanelTasks.filter((t) => (t.chanelStatus ?? 'TO_DO') === col.key);
+    let doneLink: ReactNode = null;
+    if (col.key === 'DONE') {
+      const totalDone = items.length;
+      items = items
+        .slice()
+        .sort((a, b) => (b.completedAt ?? '') < (a.completedAt ?? '') ? -1 : 1)
+        .slice(0, CHANEL_DONE_LIMIT);
+      if (totalDone > CHANEL_DONE_LIMIT) {
+        doneLink = (
+          <div className="link-note" onClick={onViewAllDone}>
+            View all {totalDone} done items →
+          </div>
+        );
+      }
+    }
+    return (
+      <div className="chanel-col" key={col.key}>
+        <h4>{col.label}</h4>
+        {col.key === 'TO_DO' && (
+          <div className="phone-slip-add" style={{ marginBottom: 6 }}>
+            <input
+              type="text"
+              placeholder="Quick add to-do..."
+              value={quickAddInput}
+              onChange={(e) => setQuickAddInput(e.target.value)}
+              onKeyDown={handleQuickAddKey}
+            />
+          </div>
+        )}
+        {items.length ? (
+          items.map((t) => (
+            <div key={t.id} className={`chanel-task${col.key === 'DONE' ? ' done' : ''}`} style={{ borderLeftColor: t.colour }}>
+              <div className="t" onClick={() => onSelectTask(t)}>
+                {t.title}
+                {t.subtasks.length > 0 && (
+                  <span className="subtask-badge">{t.subtasks.filter((s) => s.done).length}/{t.subtasks.length}</span>
+                )}
+              </div>
+              {t.client && <div className="c">{t.client}</div>}
+              <div className="chanel-actions">
+                {CHANEL_COLUMNS.map((s) => (
+                  <button
+                    key={s.key}
+                    className={s.key === col.key ? 'active' : ''}
+                    onClick={() => onSetChanelStatus(t.id, s.key)}
+                  >
+                    {s.label}
+                  </button>
+                ))}
+                {col.key !== 'DONE' && (
+                  <button onClick={() => onContinueTomorrowChanel(t.id)}>Continue Tmrw</button>
+                )}
+                <button onClick={() => onDeleteTask(t)}>Del</button>
+              </div>
+            </div>
+          ))
+        ) : (
+          <div className="empty-note">Empty</div>
+        )}
+        {doneLink}
+      </div>
+    );
+  }
+
   return (
     <div className="panel">
       <div className="person-block">
@@ -131,74 +199,15 @@ export default function LeftPanel({
 
       <div className="person-block">
         <div className="person-name">Chanel</div>
-        <CollapsibleSection title="To Do List">
+
+        <CollapsibleSection title="Chanel To Do">
           <div className="chanel-cols">
-            {CHANEL_COLUMNS.map((col) => {
-              let items = chanelTasks.filter((t) => (t.chanelStatus ?? 'TO_DO') === col.key);
-              let doneLink: ReactNode = null;
-              if (col.key === 'DONE') {
-                const totalDone = items.length;
-                items = items
-                  .slice()
-                  .sort((a, b) => (b.completedAt ?? '') < (a.completedAt ?? '') ? -1 : 1)
-                  .slice(0, CHANEL_DONE_LIMIT);
-                if (totalDone > CHANEL_DONE_LIMIT) {
-                  doneLink = (
-                    <div className="link-note" onClick={onViewAllDone}>
-                      View all {totalDone} done items →
-                    </div>
-                  );
-                }
-              }
-              return (
-                <div className="chanel-col" key={col.key}>
-                  <h4>{col.label}</h4>
-                  {col.key === 'TO_DO' && (
-                    <div className="phone-slip-add" style={{ marginBottom: 6 }}>
-                      <input
-                        type="text"
-                        placeholder="Quick add to-do..."
-                        value={quickAddInput}
-                        onChange={(e) => setQuickAddInput(e.target.value)}
-                        onKeyDown={handleQuickAddKey}
-                      />
-                    </div>
-                  )}
-                  {items.length ? (
-                    items.map((t) => (
-                      <div key={t.id} className={`chanel-task${col.key === 'DONE' ? ' done' : ''}`} style={{ borderLeftColor: t.colour }}>
-                        <div className="t" onClick={() => onSelectTask(t)}>
-                          {t.title}
-                          {t.subtasks.length > 0 && (
-                            <span className="subtask-badge">{t.subtasks.filter((s) => s.done).length}/{t.subtasks.length}</span>
-                          )}
-                        </div>
-                        {t.client && <div className="c">{t.client}</div>}
-                        <div className="chanel-actions">
-                          {CHANEL_COLUMNS.map((s) => (
-                            <button
-                              key={s.key}
-                              className={s.key === col.key ? 'active' : ''}
-                              onClick={() => onSetChanelStatus(t.id, s.key)}
-                            >
-                              {s.label}
-                            </button>
-                          ))}
-                          {col.key !== 'DONE' && (
-                            <button onClick={() => onContinueTomorrowChanel(t.id)}>Continue Tmrw</button>
-                          )}
-                          <button onClick={() => onDeleteTask(t)}>Del</button>
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <div className="empty-note">Empty</div>
-                  )}
-                  {doneLink}
-                </div>
-              );
-            })}
+            {CHANEL_TODO_COLUMNS.map((col) => renderChanelColumn(col))}
           </div>
+        </CollapsibleSection>
+
+        <CollapsibleSection title="Chanel Done" defaultOpen={false}>
+          <div className="chanel-cols">{renderChanelColumn(CHANEL_DONE_COLUMN)}</div>
         </CollapsibleSection>
       </div>
     </div>
