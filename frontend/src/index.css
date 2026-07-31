@@ -269,10 +269,9 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
 .parking-card .actions { display: flex; gap: 6px; }
 
 .done-box { margin-bottom: 4px; }
-.done-box .parking-card.done-card {
-  cursor: pointer; background: #eef0ef; border-left-color: #9aa3a0 !important; opacity: 0.75;
+.done-box .empty-note {
+  border: 1px dashed var(--border); border-radius: 6px; padding: 12px 8px; text-align: center;
 }
-.done-box .done-card .title, .done-box .done-card .client { text-decoration: line-through; color: var(--text-muted); }
 
 /* Sub-tasks / work log */
 .subtask-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12.5px; }

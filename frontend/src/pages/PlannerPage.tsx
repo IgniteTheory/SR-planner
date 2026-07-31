@@ -274,12 +274,7 @@ export default function PlannerPage() {
           const id = Number(e.dataTransfer.getData('text/plain'));
           if (id) handleParkingDrop(id);
         }}>
-          <DoneBox
-            tasks={tasks}
-            onSelectTask={(task) => setModal({ type: 'detail', task })}
-            onViewAllDone={() => setModal({ type: 'report' })}
-            onDropComplete={completeTaskById}
-          />
+          <DoneBox onDropComplete={completeTaskById} />
           <hr className="divider" />
           <ParkingLot
             tasks={tasks}
