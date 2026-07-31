@@ -7,6 +7,7 @@ import LeftPanel from '../components/LeftPanel';
 import CentrePanel from '../components/CentrePanel';
 import ParkingLot from '../components/ParkingLot';
 import DoneBox from '../components/DoneBox';
+import BillingBox from '../components/BillingBox';
 import CollapsibleSection from '../components/CollapsibleSection';
 import TaskFormModal from '../components/modals/TaskFormModal';
 import MeetingFormModal from '../components/modals/MeetingFormModal';
@@ -232,7 +233,8 @@ export default function PlannerPage() {
     }
   }
 
-  // Stephan flags a task as needing to be billed; Chanel picks it up as a to-do.
+  // Stephan flags a task as needing to be billed. Kept out of Chanel's
+  // regular To Do/Doing/Done board — it lands in its own Bill box instead.
   async function markNeedsBilling(task: PlannerTask) {
     await updateTask(task.id, { readyToBill: true });
     await createTask({
@@ -241,7 +243,12 @@ export default function PlannerPage() {
       assignedTo: 'CHANEL',
       priority: 'MEDIUM',
       colour: '#1f7a4d',
+      isBillingItem: true,
     });
+  }
+
+  async function markBillingDone(id: number) {
+    await completeTask(id);
   }
 
   if (loading) return <div className="planner-loading">Loading…</div>;
@@ -295,6 +302,10 @@ export default function PlannerPage() {
         }}>
           <CollapsibleSection title="Done">
             <DoneBox onDropComplete={completeTaskById} />
+          </CollapsibleSection>
+          <hr className="divider" />
+          <CollapsibleSection title="Bill">
+            <BillingBox tasks={tasks} onMarkBilled={markBillingDone} />
           </CollapsibleSection>
           <hr className="divider" />
           <CollapsibleSection title="Parking Lot">

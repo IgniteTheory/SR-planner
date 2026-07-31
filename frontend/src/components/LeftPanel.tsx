@@ -45,7 +45,7 @@ export default function LeftPanel({
   const [quickAddInput, setQuickAddInput] = useState('');
 
   const topPriorities = tasks.filter((t) => t.assignedTo === 'STEPHAN' && !t.completed && t.priority === 'HIGH');
-  const chanelTasks = tasks.filter((t) => t.assignedTo === 'CHANEL' && !t.completed);
+  const chanelTasks = tasks.filter((t) => t.assignedTo === 'CHANEL' && !t.completed && !t.isBillingItem);
 
   function handleSlipKey(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key === 'Enter' && slipInput.trim()) {

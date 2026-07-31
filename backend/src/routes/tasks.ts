@@ -36,7 +36,8 @@ const createSchema = z.object({
   startTime: z.string().nullable().optional(),
   durationSlots: z.number().nullable().optional(),
   location: z.string().nullable().optional(),
-  agenda: z.string().nullable().optional()
+  agenda: z.string().nullable().optional(),
+  isBillingItem: z.boolean().default(false)
 });
 
 // Mirrors findConflict() in the single-file app: any of Stephan's other
@@ -128,7 +129,8 @@ router.post('/', requireAuth, async (req, res) => {
       durationSlots: data.durationSlots ?? null,
       location: data.location ?? null,
       agenda: data.agenda ?? null,
-      chanelStatus: data.assignedTo === 'CHANEL' ? 'TO_DO' : null
+      chanelStatus: data.assignedTo === 'CHANEL' && !data.isBillingItem ? 'TO_DO' : null,
+      isBillingItem: data.isBillingItem
     },
     include: taskInclude
   });

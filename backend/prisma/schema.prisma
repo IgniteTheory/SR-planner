@@ -74,6 +74,10 @@ model PlannerTask {
   // Chanel's To Do / Doing / Done board — null for Stephan's tasks
   chanelStatus   ChanelStatus?
 
+  // Auto-generated "Bill client for X" reminder — kept out of Chanel's
+  // regular To Do/Doing/Done board, shown in its own box instead
+  isBillingItem  Boolean       @default(false)
+
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
