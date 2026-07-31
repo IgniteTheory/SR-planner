@@ -6,6 +6,7 @@ import TopBar from '../components/TopBar';
 import LeftPanel from '../components/LeftPanel';
 import CentrePanel from '../components/CentrePanel';
 import ParkingLot from '../components/ParkingLot';
+import DoneBox from '../components/DoneBox';
 import TaskFormModal from '../components/modals/TaskFormModal';
 import MeetingFormModal from '../components/modals/MeetingFormModal';
 import TaskDetailModal from '../components/modals/TaskDetailModal';
@@ -211,6 +212,19 @@ export default function PlannerPage() {
     });
   }
 
+  // Dragging a task/meeting off the calendar onto the Done box — same
+  // completion logic as the Complete button in the detail modal, so a
+  // dropped meeting still gets the Outlook follow-up prompt.
+  function completeTaskById(id: number) {
+    const task = tasks.find((t) => t.id === id);
+    if (!task || task.completed) return;
+    if (task.kind === 'MEETING') {
+      completeMeetingThenPrompt(task);
+    } else {
+      completeTask(task.id);
+    }
+  }
+
   if (loading) return <div className="planner-loading">Loading…</div>;
 
   return (
@@ -260,6 +274,13 @@ export default function PlannerPage() {
           const id = Number(e.dataTransfer.getData('text/plain'));
           if (id) handleParkingDrop(id);
         }}>
+          <DoneBox
+            tasks={tasks}
+            onSelectTask={(task) => setModal({ type: 'detail', task })}
+            onViewAllDone={() => setModal({ type: 'report' })}
+            onDropComplete={completeTaskById}
+          />
+          <hr className="divider" />
           <ParkingLot
             tasks={tasks}
             onSelectTask={(task) => setModal({ type: 'detail', task })}
