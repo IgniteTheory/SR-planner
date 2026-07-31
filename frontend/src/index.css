@@ -282,6 +282,7 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
 .subtask-badge {
   background: #eef1f0; color: var(--text-muted); font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-left: 5px;
 }
+.bill-badge { margin-left: 5px; font-size: 11px; }
 
 /* Duplicate-task date chips */
 .date-chip {

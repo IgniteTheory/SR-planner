@@ -7,6 +7,7 @@ import LeftPanel from '../components/LeftPanel';
 import CentrePanel from '../components/CentrePanel';
 import ParkingLot from '../components/ParkingLot';
 import DoneBox from '../components/DoneBox';
+import CollapsibleSection from '../components/CollapsibleSection';
 import TaskFormModal from '../components/modals/TaskFormModal';
 import MeetingFormModal from '../components/modals/MeetingFormModal';
 import TaskDetailModal from '../components/modals/TaskDetailModal';
@@ -214,15 +215,33 @@ export default function PlannerPage() {
 
   // Dragging a task/meeting off the calendar onto the Done box — same
   // completion logic as the Complete button in the detail modal, so a
-  // dropped meeting still gets the Outlook follow-up prompt.
+  // dropped meeting still gets the Outlook follow-up prompt. Items that were
+  // already marked done ahead of time have nothing left to complete, so
+  // dropping them just unschedules them off the calendar instead.
   function completeTaskById(id: number) {
     const task = tasks.find((t) => t.id === id);
-    if (!task || task.completed) return;
+    if (!task) return;
+    if (task.completed) {
+      if (task.scheduledDate) updateTask(id, { scheduledDate: null, startTime: null });
+      return;
+    }
     if (task.kind === 'MEETING') {
       completeMeetingThenPrompt(task);
     } else {
       completeTask(task.id);
     }
+  }
+
+  // Stephan flags a task as needing to be billed; Chanel picks it up as a to-do.
+  async function markNeedsBilling(task: PlannerTask) {
+    await updateTask(task.id, { readyToBill: true });
+    await createTask({
+      title: `Bill client for "${task.title}"`,
+      client: task.client,
+      assignedTo: 'CHANEL',
+      priority: 'MEDIUM',
+      colour: '#1f7a4d',
+    });
   }
 
   if (loading) return <div className="planner-loading">Loading…</div>;
@@ -274,15 +293,19 @@ export default function PlannerPage() {
           const id = Number(e.dataTransfer.getData('text/plain'));
           if (id) handleParkingDrop(id);
         }}>
-          <DoneBox onDropComplete={completeTaskById} />
+          <CollapsibleSection title="Done">
+            <DoneBox onDropComplete={completeTaskById} />
+          </CollapsibleSection>
           <hr className="divider" />
-          <ParkingLot
-            tasks={tasks}
-            onSelectTask={(task) => setModal({ type: 'detail', task })}
-            onScheduleTask={(task) => setModal({ type: 'detail', task })}
-            onEditTask={(task) => setModal(task.kind === 'MEETING' ? { type: 'editMeeting', task } : { type: 'editTask', task })}
-            onDeleteTask={(task) => setModal({ type: 'deleteConfirm', task })}
-          />
+          <CollapsibleSection title="Parking Lot">
+            <ParkingLot
+              tasks={tasks}
+              onSelectTask={(task) => setModal({ type: 'detail', task })}
+              onScheduleTask={(task) => setModal({ type: 'detail', task })}
+              onEditTask={(task) => setModal(task.kind === 'MEETING' ? { type: 'editMeeting', task } : { type: 'editTask', task })}
+              onDeleteTask={(task) => setModal({ type: 'deleteConfirm', task })}
+            />
+          </CollapsibleSection>
         </div>
       </div>
 
@@ -370,6 +393,7 @@ export default function PlannerPage() {
           onRestore={async (task) => {
             await restoreTask(task.id);
           }}
+          onMarkNeedsBilling={markNeedsBilling}
           onContinueTomorrowChanel={continueTomorrowChanel}
           onScheduleWithConflictCheck={scheduleWithConflictCheck}
           onDuplicateTask={duplicateTask}

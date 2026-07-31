@@ -42,6 +42,7 @@ export interface PlannerTask {
   agenda: string | null;
   completed: boolean;
   completedAt: string | null;
+  readyToBill: boolean;
   chanelStatus: ChanelStatus | null;
   createdAt: string;
   updatedAt: string;

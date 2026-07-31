@@ -109,7 +109,7 @@ export default function CentrePanel({ tasks, weekOffset, onWeekOffsetChange, cen
                       onDragStart={(e) => handleDragStart(e, found.item.id)}
                       onClick={() => onSelectTask(found.item)}
                     >
-                      <div className="title">{found.item.title}{subtaskBadge(found.item)}</div>
+                      <div className="title">{found.item.title}{subtaskBadge(found.item)}{found.item.readyToBill && <span className="bill-badge" title="Needs billing">💰</span>}</div>
                       <div className="client">{found.item.client}</div>
                       {found.item.kind === 'MEETING' ? (
                         <div className="hours">Meeting{found.item.location ? ` · ${found.item.location}` : ''}</div>

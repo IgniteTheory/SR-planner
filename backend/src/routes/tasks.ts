@@ -148,7 +148,8 @@ const updateSchema = z.object({
   startTime: z.string().nullable().optional(),
   durationSlots: z.number().nullable().optional(),
   location: z.string().nullable().optional(),
-  agenda: z.string().nullable().optional()
+  agenda: z.string().nullable().optional(),
+  readyToBill: z.boolean().optional()
 });
 
 router.patch('/:id', requireAuth, async (req, res) => {

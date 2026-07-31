@@ -27,7 +27,6 @@ export default function ParkingLot({ tasks, onSelectTask, onScheduleTask, onEdit
 
   return (
     <>
-      <h2>Parking Lot</h2>
       {parking.length ? (
         <div className="parking-list">
           {parking.map((t) => (

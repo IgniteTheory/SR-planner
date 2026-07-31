@@ -11,6 +11,7 @@ interface Props {
   onUpdateTask: (id: number, patch: Record<string, unknown>) => Promise<PlannerTask>;
   onComplete: (task: PlannerTask) => Promise<void> | void;
   onRestore: (task: PlannerTask) => Promise<void>;
+  onMarkNeedsBilling: (task: PlannerTask) => Promise<void>;
   onContinueTomorrowChanel: (id: number) => Promise<void>;
   onScheduleWithConflictCheck: (id: number, date: string, time: string, durationSlots?: number) => Promise<boolean>;
   onDuplicateTask: (id: number, opts: { dates?: string[]; startTime?: string | null; durationSlots?: number | null }) => Promise<PlannerTask[]>;
@@ -31,6 +32,7 @@ export default function TaskDetailModal({
   onUpdateTask,
   onComplete,
   onRestore,
+  onMarkNeedsBilling,
   onContinueTomorrowChanel,
   onScheduleWithConflictCheck,
   onDuplicateTask,
@@ -327,6 +329,16 @@ export default function TaskDetailModal({
             <button className="btn btn-primary btn-sm" onClick={() => run(() => onComplete(task))} disabled={busy}>Complete</button>
           ) : (
             <button className="btn btn-secondary btn-sm" onClick={() => run(() => onRestore(task))} disabled={busy}>Reopen</button>
+          )}
+          {isStephan && (
+            <button
+              className={`btn btn-sm${task.readyToBill ? ' btn-secondary' : ' btn-light'}`}
+              onClick={() => run(() => onMarkNeedsBilling(task))}
+              disabled={busy || task.readyToBill}
+              title="Flags this for Chanel to bill the client"
+            >
+              {task.readyToBill ? 'Billed ✓' : 'Bill'}
+            </button>
           )}
           <button className="btn btn-danger btn-sm" onClick={() => onDelete(task)} disabled={busy}>Delete</button>
         </div>

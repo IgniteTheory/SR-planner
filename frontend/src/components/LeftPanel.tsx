@@ -1,6 +1,7 @@
 import { useState, type KeyboardEvent, type ReactNode } from 'react';
 import type { ChanelStatus, PhoneSlip, PlannerTask } from '../api/types';
 import { fmtDateTime } from '../utils/time';
+import CollapsibleSection from './CollapsibleSection';
 
 const CHANEL_COLUMNS: { key: ChanelStatus; label: string }[] = [
   { key: 'DOING', label: 'Doing' },
@@ -24,27 +25,6 @@ interface Props {
   onContinueTomorrowChanel: (id: number) => void;
   onDeleteTask: (task: PlannerTask) => void;
   onViewAllDone: () => void;
-}
-
-function CollapsibleSection({
-  title,
-  defaultOpen = true,
-  children,
-}: {
-  title: string;
-  defaultOpen?: boolean;
-  children: ReactNode;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  return (
-    <div className="collapsible-section">
-      <h3 className="collapsible-header" onClick={() => setOpen((v) => !v)}>
-        <span className={`chevron${open ? ' open' : ''}`}>▸</span>
-        {title}
-      </h3>
-      {open && <div className="collapsible-body">{children}</div>}
-    </div>
-  );
 }
 
 export default function LeftPanel({
