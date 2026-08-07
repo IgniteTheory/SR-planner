@@ -110,3 +110,20 @@ export function isStartTimeBlocked(booked: Set<string>, startTime: string, durat
   }
   return false;
 }
+
+// Stopgap for spotting freshly-added Parking Lot items among older, stale
+// ones that can't be cleaned out yet — a different pastel hue each day,
+// applied only to items created that day, so "just added" is obvious
+// without having to read every card.
+const PASTEL_RAINBOW = ['#ffd1d1', '#ffe0b8', '#fff3b0', '#d3f5c6', '#c6f0e8', '#c9dcff', '#ddd1ff'];
+
+export function todaysPastelColour(): string {
+  const now = new Date();
+  const localMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const dayIndex = Math.floor(localMidnight / 86400000);
+  return PASTEL_RAINBOW[((dayIndex % PASTEL_RAINBOW.length) + PASTEL_RAINBOW.length) % PASTEL_RAINBOW.length];
+}
+
+export function isAddedToday(createdAt: string): boolean {
+  return createdAt.slice(0, 10) === isoDate(new Date());
+}

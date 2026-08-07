@@ -1,6 +1,6 @@
 import type { DragEvent } from 'react';
 import type { PlannerTask } from '../api/types';
-import { fmtDate } from '../utils/time';
+import { fmtDate, isAddedToday, todaysPastelColour } from '../utils/time';
 
 interface Props {
   tasks: PlannerTask[];
@@ -11,9 +11,15 @@ interface Props {
 }
 
 export default function ParkingLot({ tasks, onSelectTask, onScheduleTask, onEditTask, onDeleteTask }: Props) {
+  const todayColour = todaysPastelColour();
+
   const parking = tasks
     .filter((t) => t.assignedTo === 'STEPHAN' && !t.completed && !t.scheduledDate)
     .sort((a, b) => {
+      const aToday = isAddedToday(a.createdAt);
+      const bToday = isAddedToday(b.createdAt);
+      if (aToday !== bToday) return aToday ? -1 : 1;
+      if (aToday && bToday) return a.id - b.id;
       if (a.dueDate && b.dueDate) return a.dueDate < b.dueDate ? -1 : a.dueDate > b.dueDate ? 1 : 0;
       if (a.dueDate) return -1;
       if (b.dueDate) return 1;
@@ -30,7 +36,13 @@ export default function ParkingLot({ tasks, onSelectTask, onScheduleTask, onEdit
       {parking.length ? (
         <div className="parking-list">
           {parking.map((t) => (
-            <div key={t.id} className="parking-card" draggable onDragStart={(e) => handleDragStart(e, t.id)} style={{ borderLeft: `4px solid ${t.colour}` }}>
+            <div
+              key={t.id}
+              className="parking-card"
+              draggable
+              onDragStart={(e) => handleDragStart(e, t.id)}
+              style={{ borderLeft: `4px solid ${isAddedToday(t.createdAt) ? todayColour : t.colour}` }}
+            >
               <div className="title" onClick={() => onSelectTask(t)}>{t.title}</div>
               <div className="client">{t.client}</div>
               <div className="meta"><span>{t.priority}</span><span>{t.remainingHours}h left</span></div>
