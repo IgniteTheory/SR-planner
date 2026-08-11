@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import type { PlannerTask } from '../../api/types';
 import { DURATION_OPTIONS, TIME_SLOTS, durationLabel, fmtDate, getBookedSlots, isStartTimeBlocked } from '../../utils/time';
 
@@ -21,6 +21,42 @@ interface Props {
   onDeleteSubtask: (taskId: number, subId: number) => Promise<void>;
   onLogWork: (taskId: number, hours: number) => Promise<PlannerTask>;
   onDeleteWorkLogEntry: (taskId: number, entryId: number) => Promise<void>;
+  onAddAttachment: (taskId: number, file: File) => Promise<void>;
+  onDeleteAttachment: (taskId: number, attachmentId: number) => Promise<void>;
+  onStartTimer: (taskId: number) => Promise<void>;
+  onStopTimer: (taskId: number) => Promise<void>;
+}
+
+function fmtBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function ModalTimerControl({ task, onStart, onStop, disabled }: { task: PlannerTask; onStart: () => void; onStop: () => void; disabled: boolean }) {
+  const [, forceTick] = useState(0);
+
+  useEffect(() => {
+    if (!task.timerStartedAt) return;
+    const interval = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(interval);
+  }, [task.timerStartedAt]);
+
+  if (task.timerStartedAt) {
+    const elapsedMs = Date.now() - new Date(task.timerStartedAt).getTime();
+    const mins = Math.floor(elapsedMs / 60000);
+    const secs = Math.floor((elapsedMs % 60000) / 1000);
+    return (
+      <button type="button" className="btn btn-danger btn-sm" onClick={onStop} disabled={disabled}>
+        ⏹ Stop ({mins}:{secs < 10 ? '0' : ''}{secs})
+      </button>
+    );
+  }
+  return (
+    <button type="button" className="btn btn-light btn-sm" onClick={onStart} disabled={disabled}>
+      ▶ Start Timer
+    </button>
+  );
 }
 
 export default function TaskDetailModal({
@@ -42,12 +78,18 @@ export default function TaskDetailModal({
   onDeleteSubtask,
   onLogWork,
   onDeleteWorkLogEntry,
+  onAddAttachment,
+  onDeleteAttachment,
+  onStartTimer,
+  onStopTimer,
 }: Props) {
   const isStephan = task.assignedTo === 'STEPHAN';
   const isMeeting = task.kind === 'MEETING';
+  const needsHoursBeforeComplete = isStephan && !isMeeting && task.workLog.length === 0;
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [attachBusy, setAttachBusy] = useState(false);
   const [showSchedule, setShowSchedule] = useState(false);
   const [scheduleDate, setScheduleDate] = useState(task.scheduledDate?.slice(0, 10) ?? '');
   const [scheduleTime, setScheduleTime] = useState(task.startTime ?? TIME_SLOTS[0]);
@@ -112,6 +154,21 @@ export default function TaskDetailModal({
     });
   }
 
+  async function handleAttachmentFile(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    setAttachBusy(true);
+    setError(null);
+    try {
+      await onAddAttachment(task.id, file);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to upload attachment');
+    } finally {
+      setAttachBusy(false);
+    }
+  }
+
   function addDuplicateDate() {
     if (!duplicateDateInput || duplicateDates.includes(duplicateDateInput)) return;
     setDuplicateDates((prev) => [...prev, duplicateDateInput].sort());
@@ -158,6 +215,17 @@ export default function TaskDetailModal({
             <div className="stat-row"><span>Budget</span><b>{task.budgetHours}h</b></div>
             <div className="stat-row"><span>Actual</span><b>{task.actualHours}h</b></div>
             <div className="stat-row"><span>Remaining</span><b>{task.remainingHours}h</b></div>
+            {!task.completed && (
+              <div className="stat-row">
+                <span>Timer</span>
+                <ModalTimerControl
+                  task={task}
+                  onStart={() => run(() => onStartTimer(task.id))}
+                  onStop={() => run(() => onStopTimer(task.id))}
+                  disabled={busy}
+                />
+              </div>
+            )}
           </>
         )}
         {isStephan && <div className="stat-row"><span>Schedule</span><b>{scheduleInfo}</b></div>}
@@ -293,6 +361,24 @@ export default function TaskDetailModal({
           />
         </div>
 
+        <h3>Attachments</h3>
+        {task.attachments.length ? (
+          task.attachments.map((a) => (
+            <div className="subtask-row" key={a.id}>
+              <a className="txt" href={`/api/tasks/${task.id}/attachments/${a.id}/download`} target="_blank" rel="noreferrer">
+                📎 {a.filename}
+              </a>
+              <span style={{ fontSize: 11, color: 'var(--text-muted)' }}>{fmtBytes(a.size)}</span>
+              <button onClick={() => run(() => onDeleteAttachment(task.id, a.id))} title="Delete" disabled={busy}>×</button>
+            </div>
+          ))
+        ) : (
+          <div className="empty-note">No attachments.</div>
+        )}
+        <div className="phone-slip-add">
+          <input type="file" onChange={handleAttachmentFile} disabled={attachBusy} />
+        </div>
+
         {isStephan && !isMeeting && task.workLog.length > 0 && (
           <>
             <h3>Work Log</h3>
@@ -326,7 +412,21 @@ export default function TaskDetailModal({
           )}
           <button className="btn btn-secondary btn-sm" onClick={() => onEdit(task)} disabled={busy}>Edit</button>
           {!task.completed ? (
-            <button className="btn btn-primary btn-sm" onClick={() => run(() => onComplete(task))} disabled={busy}>Complete</button>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => {
+                if (needsHoursBeforeComplete) {
+                  setError('Log the hours spent before marking this complete.');
+                  setShowLogWork(true);
+                  return;
+                }
+                run(() => onComplete(task));
+              }}
+              disabled={busy}
+              title={needsHoursBeforeComplete ? 'Log hours spent first' : undefined}
+            >
+              Complete
+            </button>
           ) : (
             <button className="btn btn-secondary btn-sm" onClick={() => run(() => onRestore(task))} disabled={busy}>Reopen</button>
           )}

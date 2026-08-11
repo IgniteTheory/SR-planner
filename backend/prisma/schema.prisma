@@ -78,13 +78,32 @@ model PlannerTask {
   // regular To Do/Doing/Done board, shown in its own box instead
   isBillingItem  Boolean       @default(false)
 
+  // Set while a start/stop timer is running on this task; cleared (and a
+  // WorkLogEntry created) when stopped. Null the rest of the time.
+  timerStartedAt DateTime?
+
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
 
-  subtasks Subtask[]
-  workLog  WorkLogEntry[]
+  subtasks    Subtask[]
+  workLog     WorkLogEntry[]
+  attachments Attachment[]
 
   @@map("planner_tasks")
+}
+
+model Attachment {
+  id         Int      @id @default(autoincrement())
+  taskId     Int
+  filename   String
+  mimeType   String
+  size       Int
+  data       Bytes
+  uploadedAt DateTime @default(now())
+
+  task PlannerTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@map("planner_attachments")
 }
 
 model Subtask {

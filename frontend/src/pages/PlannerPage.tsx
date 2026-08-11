@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { api, ApiError } from '../api/client';
-import type { PhoneSlip, PlannerTask } from '../api/types';
+import type { AssignedTo, PhoneSlip, PlannerTask } from '../api/types';
 import { useAuth } from '../context/AuthContext';
 import TopBar from '../components/TopBar';
 import LeftPanel from '../components/LeftPanel';
@@ -12,6 +12,7 @@ import CollapsibleSection from '../components/CollapsibleSection';
 import TaskFormModal from '../components/modals/TaskFormModal';
 import MeetingFormModal from '../components/modals/MeetingFormModal';
 import TaskDetailModal from '../components/modals/TaskDetailModal';
+import QuickAddModal from '../components/modals/QuickAddModal';
 import ReportModal from '../components/modals/ReportModal';
 import ImportModal from '../components/modals/ImportModal';
 import ConfirmDeleteModal from '../components/modals/ConfirmDeleteModal';
@@ -19,11 +20,16 @@ import FollowUpPromptModal from '../components/modals/FollowUpPromptModal';
 import { useAlarms } from '../hooks/useAlarms';
 
 export type ModalState =
-  | { type: 'newTask'; prefill?: Partial<{ client: string; title: string }>; convertSlipId?: number }
+  | {
+      type: 'newTask';
+      prefill?: Partial<{ client: string; title: string; assignedTo: AssignedTo; scheduledDate: string; startTime: string }>;
+      convertSlipId?: number;
+    }
   | { type: 'editTask'; task: PlannerTask }
-  | { type: 'newMeeting' }
+  | { type: 'newMeeting'; prefill?: { scheduledDate?: string; startTime?: string } }
   | { type: 'editMeeting'; task: PlannerTask }
   | { type: 'detail'; task: PlannerTask }
+  | { type: 'quickAdd'; dateIso: string; time: string }
   | { type: 'report' }
   | { type: 'import' }
   | { type: 'deleteConfirm'; task: PlannerTask }
@@ -154,6 +160,40 @@ export default function PlannerPage() {
     refreshOpenTask(res.task);
   }
 
+  async function addAttachment(taskId: number, file: File) {
+    const dataBase64 = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result).split(',')[1] ?? '');
+      reader.onerror = () => reject(reader.error);
+      reader.readAsDataURL(file);
+    });
+    const res = await api.post<{ task: PlannerTask }>(`/tasks/${taskId}/attachments`, {
+      filename: file.name,
+      mimeType: file.type || 'application/octet-stream',
+      dataBase64,
+    });
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
+    refreshOpenTask(res.task);
+  }
+
+  async function deleteAttachment(taskId: number, attachmentId: number) {
+    const res = await api.delete<{ task: PlannerTask }>(`/tasks/${taskId}/attachments/${attachmentId}`);
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
+    refreshOpenTask(res.task);
+  }
+
+  async function startTimer(taskId: number) {
+    const res = await api.post<{ task: PlannerTask }>(`/tasks/${taskId}/timer/start`);
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
+    refreshOpenTask(res.task);
+  }
+
+  async function stopTimer(taskId: number) {
+    const res = await api.post<{ task: PlannerTask }>(`/tasks/${taskId}/timer/stop`);
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
+    refreshOpenTask(res.task);
+  }
+
   async function quickAddChanelTask(text: string) {
     await createTask({ title: text, client: '', assignedTo: 'CHANEL', priority: 'MEDIUM', colour: '#1f7a4d' });
   }
@@ -229,7 +269,9 @@ export default function PlannerPage() {
     if (task.kind === 'MEETING') {
       completeMeetingThenPrompt(task);
     } else {
-      completeTask(task.id);
+      completeTask(task.id).catch((err) => {
+        window.alert(err instanceof ApiError ? err.message : 'Could not complete this task.');
+      });
     }
   }
 
@@ -292,6 +334,9 @@ export default function PlannerPage() {
             onCentreViewChange={setCentreView}
             onSelectTask={(task) => setModal({ type: 'detail', task })}
             onCellDrop={handleCellDrop}
+            onCellClick={(dateIso, time) => setModal({ type: 'quickAdd', dateIso, time })}
+            onStartTimer={startTimer}
+            onStopTimer={stopTimer}
           />
         </div>
 
@@ -353,6 +398,7 @@ export default function PlannerPage() {
       {modal?.type === 'newMeeting' && (
         <MeetingFormModal
           title="New Meeting"
+          initial={modal.prefill}
           tasks={tasks}
           onClose={() => setModal(null)}
           onSubmit={async (values) => {
@@ -414,6 +460,27 @@ export default function PlannerPage() {
           onDeleteSubtask={deleteSubtask}
           onLogWork={logWork}
           onDeleteWorkLogEntry={deleteWorkLogEntry}
+          onAddAttachment={addAttachment}
+          onDeleteAttachment={deleteAttachment}
+          onStartTimer={startTimer}
+          onStopTimer={stopTimer}
+        />
+      )}
+
+      {modal?.type === 'quickAdd' && (
+        <QuickAddModal
+          dateIso={modal.dateIso}
+          time={modal.time}
+          onClose={() => setModal(null)}
+          onPick={(kind) => {
+            if (kind === 'TASK') {
+              setModal({ type: 'newTask', prefill: { scheduledDate: modal.dateIso, startTime: modal.time } });
+            } else if (kind === 'MEETING') {
+              setModal({ type: 'newMeeting', prefill: { scheduledDate: modal.dateIso, startTime: modal.time } });
+            } else {
+              setModal({ type: 'newTask', prefill: { assignedTo: 'CHANEL' } });
+            }
+          }}
         />
       )}
 

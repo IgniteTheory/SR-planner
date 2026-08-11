@@ -12,6 +12,8 @@ interface InitialValues {
   priority?: Priority;
   assignedTo?: AssignedTo;
   colour?: string;
+  scheduledDate?: string | null;
+  startTime?: string | null;
 }
 
 interface Props {
@@ -29,12 +31,12 @@ export default function TaskFormModal({ title, initial, tasks, onClose, onSubmit
   const [client, setClient] = useState(initial?.client ?? '');
   const [taskTitle, setTaskTitle] = useState(initial?.title ?? '');
   const [assignedTo, setAssignedTo] = useState<AssignedTo>(initial?.assignedTo ?? 'STEPHAN');
-  const [budgetHours, setBudgetHours] = useState(String(initial?.budgetHours ?? ''));
+  const [budgetHours, setBudgetHours] = useState(String(initial?.budgetHours ?? (isEdit ? '' : '0.5')));
   const [dueDate, setDueDate] = useState(initial?.dueDate?.slice(0, 10) ?? '');
   const [priority, setPriority] = useState<Priority>(initial?.priority ?? 'MEDIUM');
   const [colour, setColour] = useState(initial?.colour ?? SWATCHES[0]);
-  const [scheduleDate, setScheduleDate] = useState('');
-  const [scheduleTime, setScheduleTime] = useState(TIME_SLOTS[0]);
+  const [scheduleDate, setScheduleDate] = useState(initial?.scheduledDate?.slice(0, 10) ?? '');
+  const [scheduleTime, setScheduleTime] = useState(initial?.startTime ?? TIME_SLOTS[0]);
   const [scheduleDuration, setScheduleDuration] = useState(1);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);

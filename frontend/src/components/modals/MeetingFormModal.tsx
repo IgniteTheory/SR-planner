@@ -4,9 +4,19 @@ import { DURATION_OPTIONS, TIME_SLOTS, getBookedSlots, isStartTimeBlocked } from
 
 const MEETING_COLOUR = '#8b5cf6';
 
+interface MeetingInitial {
+  title?: string;
+  client?: string;
+  scheduledDate?: string | null;
+  startTime?: string | null;
+  durationSlots?: number | null;
+  location?: string | null;
+  agenda?: string | null;
+}
+
 interface Props {
   title: string;
-  initial?: PlannerTask;
+  initial?: MeetingInitial;
   tasks: PlannerTask[];
   onClose: () => void;
   onSubmit: (values: Record<string, unknown>) => Promise<void>;

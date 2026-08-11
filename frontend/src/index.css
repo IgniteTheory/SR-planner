@@ -215,6 +215,8 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
   padding: 2px;
 }
 .planner-grid .cell.drag-over { background: var(--green-light); }
+.planner-grid .cell.empty-cell { cursor: pointer; }
+.planner-grid .cell.empty-cell:hover { background: var(--green-light); }
 .task-card {
   background: #fff;
   border: 1px solid var(--border);
@@ -283,6 +285,16 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
   background: #eef1f0; color: var(--text-muted); font-size: 10px; padding: 1px 5px; border-radius: 8px; margin-left: 5px;
 }
 .bill-badge { margin-left: 5px; font-size: 11px; }
+.attachment-badge { margin-left: 5px; font-size: 10px; color: var(--text-muted); }
+
+/* Calendar-card timer control */
+.timer-btn {
+  margin-top: 3px; border: 1px solid var(--border); background: #fff; color: var(--text-muted);
+  font-size: 10.5px; font-weight: 600; padding: 2px 6px; border-radius: 10px; cursor: pointer;
+}
+.timer-btn:hover { border-color: var(--green); color: var(--green-dark); }
+.timer-btn.running { background: var(--danger); border-color: var(--danger); color: #fff; }
+.timer-btn.running:hover { color: #fff; }
 
 /* Duplicate-task date chips */
 .date-chip {

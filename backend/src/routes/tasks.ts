@@ -8,11 +8,38 @@ const router = Router();
 
 const taskInclude = {
   subtasks: { orderBy: { id: 'asc' } },
-  workLog: { orderBy: { loggedAt: 'asc' } }
+  workLog: { orderBy: { loggedAt: 'asc' } },
+  // Never include the raw bytes here — attachments are fetched by every
+  // task list/detail load, and the actual file data is only needed by the
+  // dedicated download route.
+  attachments: {
+    orderBy: { id: 'asc' },
+    select: { id: true, taskId: true, filename: true, mimeType: true, size: true, uploadedAt: true }
+  }
 } satisfies Prisma.PlannerTaskInclude;
 
 function toDecimal(n: number): Prisma.Decimal {
   return new Prisma.Decimal(n);
+}
+
+// Shared by /worklog and /timer/stop: recompute actual/remaining hours from
+// the full work log, auto-completing the task once the budget is used up
+// (mirrors the single-file app's original behaviour).
+async function recomputeHoursAndMaybeComplete(taskId: number) {
+  const existing = await prisma.plannerTask.findUnique({ where: { id: taskId }, include: { workLog: true } });
+  if (!existing) return null;
+  const actualHours = existing.workLog.reduce((sum, e) => sum + Number(e.hours), 0);
+  const remainingHours = Math.max(0, Number(existing.budgetHours) - actualHours);
+  const autoComplete = remainingHours <= 0 && !existing.completed;
+  return prisma.plannerTask.update({
+    where: { id: taskId },
+    data: {
+      actualHours: toDecimal(actualHours),
+      remainingHours: toDecimal(remainingHours),
+      ...(autoComplete ? { completed: true, completedAt: new Date() } : {})
+    },
+    include: taskInclude
+  });
 }
 
 router.get('/', requireAuth, async (_req, res) => {
@@ -188,6 +215,15 @@ router.patch('/:id', requireAuth, async (req, res) => {
 
 router.post('/:id/complete', requireAuth, async (req, res) => {
   const id = Number(req.params.id);
+  const existing = await prisma.plannerTask.findUnique({ where: { id }, include: { workLog: true } });
+  if (!existing) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  if (existing.assignedTo === 'STEPHAN' && existing.kind === 'TASK' && existing.workLog.length === 0) {
+    res.status(400).json({ error: 'Log the hours spent before marking this task complete.' });
+    return;
+  }
   const task = await prisma.plannerTask.update({
     where: { id },
     data: { completed: true, completedAt: new Date() },
@@ -203,6 +239,49 @@ router.post('/:id/restore', requireAuth, async (req, res) => {
     data: { completed: false, completedAt: null },
     include: taskInclude
   });
+  res.json({ task });
+});
+
+/* ---------- start/stop timer ---------- */
+
+router.post('/:id/timer/start', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await prisma.plannerTask.findUnique({ where: { id } });
+  if (!existing) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  if (existing.timerStartedAt) {
+    const task = await prisma.plannerTask.findUnique({ where: { id }, include: taskInclude });
+    res.json({ task });
+    return;
+  }
+  const task = await prisma.plannerTask.update({
+    where: { id },
+    data: { timerStartedAt: new Date() },
+    include: taskInclude
+  });
+  res.json({ task });
+});
+
+router.post('/:id/timer/stop', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const existing = await prisma.plannerTask.findUnique({ where: { id } });
+  if (!existing) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  if (!existing.timerStartedAt) {
+    res.status(400).json({ error: 'Timer is not running.' });
+    return;
+  }
+  const elapsedHours = Math.max(
+    0.01,
+    Math.round(((Date.now() - existing.timerStartedAt.getTime()) / 3600000) * 100) / 100
+  );
+  await prisma.plannerTask.update({ where: { id }, data: { timerStartedAt: null } });
+  await prisma.workLogEntry.create({ data: { taskId: id, hours: toDecimal(elapsedHours) } });
+  const task = await recomputeHoursAndMaybeComplete(id);
   res.json({ task });
 });
 
@@ -367,25 +446,11 @@ router.post('/:id/worklog', requireAuth, async (req, res) => {
   }
 
   await prisma.workLogEntry.create({ data: { taskId, hours: toDecimal(parsed.data.hours) } });
-
-  const existing = await prisma.plannerTask.findUnique({ where: { id: taskId }, include: { workLog: true } });
-  if (!existing) {
+  const task = await recomputeHoursAndMaybeComplete(taskId);
+  if (!task) {
     res.status(404).json({ error: 'Task not found' });
     return;
   }
-  const actualHours = existing.workLog.reduce((sum, e) => sum + Number(e.hours), 0);
-  const remainingHours = Math.max(0, Number(existing.budgetHours) - actualHours);
-  const autoComplete = remainingHours <= 0;
-
-  const task = await prisma.plannerTask.update({
-    where: { id: taskId },
-    data: {
-      actualHours: toDecimal(actualHours),
-      remainingHours: toDecimal(remainingHours),
-      ...(autoComplete ? { completed: true, completedAt: new Date() } : {})
-    },
-    include: taskInclude
-  });
 
   res.status(201).json({ task });
 });
@@ -408,6 +473,71 @@ router.delete('/:id/worklog/:entryId', requireAuth, async (req, res) => {
     data: { actualHours: toDecimal(actualHours), remainingHours: toDecimal(remainingHours) },
     include: taskInclude
   });
+  res.json({ task });
+});
+
+/* ---------- attachments ---------- */
+
+const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
+
+const attachmentSchema = z.object({
+  filename: z.string().min(1),
+  mimeType: z.string().min(1),
+  dataBase64: z.string().min(1)
+});
+
+router.post('/:id/attachments', requireAuth, async (req, res) => {
+  const taskId = Number(req.params.id);
+  const parsed = attachmentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'filename, mimeType and dataBase64 are required' });
+    return;
+  }
+  const buffer = Buffer.from(parsed.data.dataBase64, 'base64');
+  if (buffer.length > MAX_ATTACHMENT_BYTES) {
+    res.status(400).json({ error: 'File is too large (max 8MB).' });
+    return;
+  }
+  await prisma.attachment.create({
+    data: {
+      taskId,
+      filename: parsed.data.filename,
+      mimeType: parsed.data.mimeType,
+      size: buffer.length,
+      data: buffer
+    }
+  });
+  const task = await prisma.plannerTask.findUnique({ where: { id: taskId }, include: taskInclude });
+  if (!task) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+  res.status(201).json({ task });
+});
+
+// Plain GET so a normal <a href> download works off the browser's existing
+// session cookie — no need to fetch+blob it client-side.
+router.get('/:id/attachments/:attId/download', requireAuth, async (req, res) => {
+  const attId = Number(req.params.attId);
+  const attachment = await prisma.attachment.findUnique({ where: { id: attId } });
+  if (!attachment || attachment.taskId !== Number(req.params.id)) {
+    res.status(404).json({ error: 'Attachment not found' });
+    return;
+  }
+  res.setHeader('Content-Type', attachment.mimeType);
+  res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(attachment.filename)}"`);
+  res.send(attachment.data);
+});
+
+router.delete('/:id/attachments/:attId', requireAuth, async (req, res) => {
+  const taskId = Number(req.params.id);
+  const attId = Number(req.params.attId);
+  await prisma.attachment.delete({ where: { id: attId } });
+  const task = await prisma.plannerTask.findUnique({ where: { id: taskId }, include: taskInclude });
+  if (!task) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
   res.json({ task });
 });
 

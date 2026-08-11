@@ -23,6 +23,15 @@ export interface WorkLogEntry {
   loggedAt: string;
 }
 
+export interface Attachment {
+  id: number;
+  taskId: number;
+  filename: string;
+  mimeType: string;
+  size: number;
+  uploadedAt: string;
+}
+
 export interface PlannerTask {
   id: number;
   client: string;
@@ -45,10 +54,12 @@ export interface PlannerTask {
   readyToBill: boolean;
   isBillingItem: boolean;
   chanelStatus: ChanelStatus | null;
+  timerStartedAt: string | null;
   createdAt: string;
   updatedAt: string;
   subtasks: Subtask[];
   workLog: WorkLogEntry[];
+  attachments: Attachment[];
 }
 
 export interface PhoneSlip {

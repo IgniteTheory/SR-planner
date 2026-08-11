@@ -1,4 +1,4 @@
-import { Fragment, type DragEvent } from 'react';
+import { Fragment, useEffect, useState, type DragEvent } from 'react';
 import type { PlannerTask } from '../api/types';
 import {
   CALL_BLOCK_TIMES,
@@ -19,6 +19,9 @@ interface Props {
   onCentreViewChange: (view: 'week' | 'today') => void;
   onSelectTask: (task: PlannerTask) => void;
   onCellDrop: (taskId: number, dateIso: string, time: string) => void;
+  onCellClick: (dateIso: string, time: string) => void;
+  onStartTimer: (taskId: number) => void;
+  onStopTimer: (taskId: number) => void;
 }
 
 function subtaskBadge(t: PlannerTask) {
@@ -27,7 +30,57 @@ function subtaskBadge(t: PlannerTask) {
   return <span className="subtask-badge">{done}/{t.subtasks.length}</span>;
 }
 
-export default function CentrePanel({ tasks, weekOffset, onWeekOffsetChange, centreView, onCentreViewChange, onSelectTask, onCellDrop }: Props) {
+function attachmentBadge(t: PlannerTask) {
+  if (!t.attachments.length) return null;
+  return <span className="attachment-badge" title={`${t.attachments.length} attachment${t.attachments.length > 1 ? 's' : ''}`}>📎{t.attachments.length}</span>;
+}
+
+// Live-updating start/stop control shown on a task card so Stephan can time
+// his work directly from the calendar. Each stop logs its own work-log
+// entry — repeated start/stop cycles just add more entries.
+function TimerControl({ task, onStart, onStop }: { task: PlannerTask; onStart: () => void; onStop: () => void }) {
+  const [, forceTick] = useState(0);
+
+  useEffect(() => {
+    if (!task.timerStartedAt) return;
+    const interval = setInterval(() => forceTick((n) => n + 1), 1000);
+    return () => clearInterval(interval);
+  }, [task.timerStartedAt]);
+
+  if (task.timerStartedAt) {
+    const elapsedMs = Date.now() - new Date(task.timerStartedAt).getTime();
+    const mins = Math.floor(elapsedMs / 60000);
+    const secs = Math.floor((elapsedMs % 60000) / 1000);
+    return (
+      <button
+        type="button"
+        className="timer-btn running"
+        onClick={(e) => { e.stopPropagation(); onStop(); }}
+        title="Stop timer and log the hours"
+      >
+        ⏹ {mins}:{secs < 10 ? '0' : ''}{secs}
+      </button>
+    );
+  }
+  return (
+    <button type="button" className="timer-btn" onClick={(e) => { e.stopPropagation(); onStart(); }} title="Start timer">
+      ▶ Start
+    </button>
+  );
+}
+
+export default function CentrePanel({
+  tasks,
+  weekOffset,
+  onWeekOffsetChange,
+  centreView,
+  onCentreViewChange,
+  onSelectTask,
+  onCellDrop,
+  onCellClick,
+  onStartTimer,
+  onStopTimer,
+}: Props) {
   const todayIso = isoDate(new Date());
   const weekStart = addDays(mondayOf(new Date()), weekOffset * 7);
   const dayDates = centreView === 'today' ? [new Date()] : [0, 1, 2, 3, 4].map((i) => addDays(weekStart, i));
@@ -89,12 +142,14 @@ export default function CentrePanel({ tasks, weekOffset, onWeekOffsetChange, cen
               const found = findCell(dateIso, time);
               const todayColClass = dateIso === todayIso ? ' today-col' : '';
               const isCallBlock = !found && CALL_BLOCK_TIMES.includes(time);
+              const isEmpty = !found && !isCallBlock;
               return (
                 <div
                   key={`${dateIso}-${time}`}
-                  className={`cell${todayColClass}`}
+                  className={`cell${todayColClass}${isEmpty ? ' empty-cell' : ''}`}
                   onDragOver={(e) => { if (!isCallBlock) e.preventDefault(); }}
                   onDrop={(e) => { if (!isCallBlock) handleDrop(e, dateIso, time); }}
+                  onClick={() => { if (isEmpty) onCellClick(dateIso, time); }}
                 >
                   {isCallBlock && (
                     <div className="task-card call-block" title="Standing block — return calls">
@@ -109,12 +164,19 @@ export default function CentrePanel({ tasks, weekOffset, onWeekOffsetChange, cen
                       onDragStart={(e) => handleDragStart(e, found.item.id)}
                       onClick={() => onSelectTask(found.item)}
                     >
-                      <div className="title">{found.item.title}{subtaskBadge(found.item)}{found.item.readyToBill && <span className="bill-badge" title="Needs billing">💰</span>}</div>
+                      <div className="title">{found.item.title}{subtaskBadge(found.item)}{attachmentBadge(found.item)}{found.item.readyToBill && <span className="bill-badge" title="Needs billing">💰</span>}</div>
                       <div className="client">{found.item.client}</div>
                       {found.item.kind === 'MEETING' ? (
-                        <div className="hours">Meeting{found.item.location ? ` · ${found.item.location}` : ''}</div>
+                        <div className="hours">{found.item.startTime} · Meeting{found.item.location ? ` · ${found.item.location}` : ''}</div>
                       ) : (
-                        <div className="hours">{found.item.remainingHours}h left</div>
+                        <div className="hours">{found.item.startTime} · {found.item.remainingHours}h left</div>
+                      )}
+                      {found.item.kind === 'TASK' && !found.item.completed && (
+                        <TimerControl
+                          task={found.item}
+                          onStart={() => onStartTimer(found.item.id)}
+                          onStop={() => onStopTimer(found.item.id)}
+                        />
                       )}
                     </div>
                   )}
