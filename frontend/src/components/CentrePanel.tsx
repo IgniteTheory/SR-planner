@@ -183,7 +183,8 @@ export default function CentrePanel({
                   {found && !found.isStart && (
                     <div
                       className={`task-card${found.item.kind === 'MEETING' ? ' kind-meeting' : ''}${found.item.completed ? ' done' : ''} continuation`}
-                      style={{ borderLeftColor: found.item.colour }}
+                      style={{ borderLeftColor: found.item.colour, backgroundColor: `${found.item.colour}26` }}
+                      title={found.item.title}
                       onClick={() => onSelectTask(found.item)}
                     />
                   )}

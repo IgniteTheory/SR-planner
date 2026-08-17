@@ -18,7 +18,9 @@ import ImportModal from '../components/modals/ImportModal';
 import ConfirmDeleteModal from '../components/modals/ConfirmDeleteModal';
 import FollowUpPromptModal from '../components/modals/FollowUpPromptModal';
 import BillingPromptModal from '../components/modals/BillingPromptModal';
+import TimerCheckInModal from '../components/modals/TimerCheckInModal';
 import { useAlarms } from '../hooks/useAlarms';
+import { useTimerCheckIn } from '../hooks/useTimerCheckIn';
 import { isSlotInFuture } from '../utils/time';
 
 export type ModalState =
@@ -37,6 +39,7 @@ export type ModalState =
   | { type: 'deleteConfirm'; task: PlannerTask }
   | { type: 'meetingCompletedPrompt'; client: string; title: string }
   | { type: 'billingPrompt'; task: PlannerTask }
+  | { type: 'timerCheckIn'; task: PlannerTask }
   | null;
 
 export default function PlannerPage() {
@@ -70,6 +73,9 @@ export default function PlannerPage() {
   }, [loadAll]);
 
   useAlarms(tasks);
+  useTimerCheckIn(tasks, (task) => {
+    setModal((current) => (current === null ? { type: 'timerCheckIn', task } : current));
+  });
 
   // Refresh whichever task is open in a modal after a mutation, so the modal
   // stays in sync instead of showing stale data.
@@ -194,6 +200,12 @@ export default function PlannerPage() {
   }
 
   async function startTimer(taskId: number) {
+    const alreadyRunning = tasks.find((t) => t.id !== taskId && t.timerStartedAt);
+    if (alreadyRunning) {
+      const ok = window.confirm(`A timer is already running on "${alreadyRunning.title}". Stop it and start this one instead?`);
+      if (!ok) return;
+      await stopTimer(alreadyRunning.id);
+    }
     const res = await api.post<{ task: PlannerTask }>(`/tasks/${taskId}/timer/start`);
     setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
     refreshOpenTask(res.task);
@@ -551,6 +563,20 @@ export default function PlannerPage() {
             } else {
               setModal(null);
             }
+          }}
+        />
+      )}
+
+      {modal?.type === 'timerCheckIn' && (
+        <TimerCheckInModal
+          title={modal.task.title}
+          onStillWorking={() => setModal(null)}
+          onStop={() => {
+            const taskId = modal.task.id;
+            setModal(null);
+            stopTimer(taskId).catch((err) => {
+              window.alert(err instanceof ApiError ? err.message : 'Could not stop the timer.');
+            });
           }}
         />
       )}

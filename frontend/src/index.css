@@ -235,7 +235,7 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
 .task-card.prio-MEDIUM { border-left-color: var(--amber); }
 .task-card.prio-LOW { border-left-color: #8ea0b3; }
 .task-card.kind-meeting { background: var(--meeting-bg); border-left-color: var(--meeting); }
-.task-card.continuation { padding: 2px; opacity: 0.5; }
+.task-card.continuation { padding: 2px; border-style: dashed; }
 .task-card.call-block {
   background: repeating-linear-gradient(45deg, #fdf3e2, #fdf3e2 6px, #fbe9cc 6px, #fbe9cc 12px);
   border-left-color: var(--amber); border-style: dashed; cursor: default;
