@@ -64,19 +64,20 @@ const createSchema = z.object({
   durationSlots: z.number().nullable().optional(),
   location: z.string().nullable().optional(),
   agenda: z.string().nullable().optional(),
-  isBillingItem: z.boolean().default(false)
+  isBillingItem: z.boolean().default(false),
+  billingAmount: z.number().nullable().optional()
 });
 
 // Mirrors findConflict() in the single-file app: any of Stephan's other
 // scheduled, not-yet-completed items whose slots overlap the requested one.
-async function findConflict(dateIso: string, startTime: string, durationSlots: number, excludeId?: number) {
+async function findConflict(dateIso: string, startTime: string, durationSlots: number, excludeIds?: number[]) {
   const candidates = await prisma.plannerTask.findMany({
     where: {
       assignedTo: 'STEPHAN',
       completed: false,
       scheduledDate: new Date(dateIso),
       startTime: { not: null },
-      ...(excludeId ? { id: { not: excludeId } } : {})
+      ...(excludeIds && excludeIds.length ? { id: { notIn: excludeIds } } : {})
     }
   });
 
@@ -126,7 +127,7 @@ router.post('/conflict-check', requireAuth, async (req, res) => {
     parsed.data.scheduledDate,
     parsed.data.startTime,
     parsed.data.durationSlots,
-    parsed.data.excludeId
+    parsed.data.excludeId != null ? [parsed.data.excludeId] : undefined
   );
   res.json({ conflict });
 });
@@ -157,7 +158,8 @@ router.post('/', requireAuth, async (req, res) => {
       location: data.location ?? null,
       agenda: data.agenda ?? null,
       chanelStatus: data.assignedTo === 'CHANEL' && !data.isBillingItem ? 'TO_DO' : null,
-      isBillingItem: data.isBillingItem
+      isBillingItem: data.isBillingItem,
+      billingAmount: data.billingAmount != null ? toDecimal(data.billingAmount) : null
     },
     include: taskInclude
   });
@@ -178,7 +180,8 @@ const updateSchema = z.object({
   durationSlots: z.number().nullable().optional(),
   location: z.string().nullable().optional(),
   agenda: z.string().nullable().optional(),
-  readyToBill: z.boolean().optional()
+  readyToBill: z.boolean().optional(),
+  billingAmount: z.number().nullable().optional()
 });
 
 router.patch('/:id', requireAuth, async (req, res) => {
@@ -203,6 +206,9 @@ router.patch('/:id', requireAuth, async (req, res) => {
     patch.budgetHours = toDecimal(data.budgetHours);
     const actual = Number(existing.actualHours);
     patch.remainingHours = toDecimal(Math.max(0, data.budgetHours - actual));
+  }
+  if ('billingAmount' in data) {
+    patch.billingAmount = data.billingAmount != null ? toDecimal(data.billingAmount) : null;
   }
 
   const task = await prisma.plannerTask.update({
@@ -240,6 +246,57 @@ router.post('/:id/restore', requireAuth, async (req, res) => {
     include: taskInclude
   });
   res.json({ task });
+});
+
+const swapScheduleSchema = z.object({ withId: z.number() });
+
+// Dragging one of Stephan's scheduled items onto a cell already occupied by
+// another swaps their date/startTime/durationSlots wholesale — if the
+// dragged item had no slot yet (dragged from the Parking Lot), the bumped
+// item simply inherits that "no slot", i.e. ends up unscheduled. Guards
+// against a third item already sitting in either destination slot so a swap
+// can't silently double-book someone else's time.
+router.post('/:id/swap-schedule', requireAuth, async (req, res) => {
+  const id = Number(req.params.id);
+  const parsed = swapScheduleSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: 'withId is required' });
+    return;
+  }
+  const otherId = parsed.data.withId;
+  if (otherId === id) {
+    res.status(400).json({ error: 'Cannot swap a task with itself' });
+    return;
+  }
+
+  const [a, b] = await Promise.all([
+    prisma.plannerTask.findUnique({ where: { id } }),
+    prisma.plannerTask.findUnique({ where: { id: otherId } })
+  ]);
+  if (!a || !b) {
+    res.status(404).json({ error: 'Task not found' });
+    return;
+  }
+
+  const aNew = { scheduledDate: b.scheduledDate, startTime: b.startTime, durationSlots: b.durationSlots };
+  const bNew = { scheduledDate: a.scheduledDate, startTime: a.startTime, durationSlots: a.durationSlots };
+
+  for (const dest of [aNew, bNew]) {
+    if (!dest.scheduledDate || !dest.startTime) continue;
+    const dateIso = dest.scheduledDate.toISOString().slice(0, 10);
+    const conflict = await findConflict(dateIso, dest.startTime, dest.durationSlots || 1, [id, otherId]);
+    if (conflict) {
+      res.status(409).json({ error: `Cannot swap — "${conflict.title}" is already in that slot.` });
+      return;
+    }
+  }
+
+  const [updatedA, updatedB] = await prisma.$transaction([
+    prisma.plannerTask.update({ where: { id }, data: aNew, include: taskInclude }),
+    prisma.plannerTask.update({ where: { id: otherId }, data: bNew, include: taskInclude })
+  ]);
+
+  res.json({ taskA: updatedA, taskB: updatedB });
 });
 
 /* ---------- start/stop timer ---------- */

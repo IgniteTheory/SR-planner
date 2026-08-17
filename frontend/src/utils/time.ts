@@ -127,3 +127,16 @@ export function todaysPastelColour(): string {
 export function isAddedToday(createdAt: string): boolean {
   return createdAt.slice(0, 10) === isoDate(new Date());
 }
+
+// Compares a scheduled slot against the current local (browser) time, so a
+// task completed early frees up its slot only when that slot hasn't
+// happened yet — server time may be a different timezone (e.g. UTC on the
+// host), so this deliberately stays client-side.
+export function isSlotInFuture(scheduledDate: string | null, startTime: string | null): boolean {
+  if (!scheduledDate || !startTime) return false;
+  const [y, m, d] = scheduledDate.slice(0, 10).split('-').map(Number);
+  const [hh, mm] = startTime.split(':').map(Number);
+  if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return false;
+  const slotDate = new Date(y, m - 1, d, hh, mm, 0, 0);
+  return slotDate.getTime() > Date.now();
+}
