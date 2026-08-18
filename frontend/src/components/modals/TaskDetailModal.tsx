@@ -264,7 +264,7 @@ export default function TaskDetailModal({
           <div className="duplicate-panel" style={{ marginTop: 4, marginBottom: 10 }}>
             <p className="prompt-text" style={{ marginBottom: 8 }}>
               {isStephan
-                ? 'Leave dates empty for a single unscheduled copy, or add a date for each day you need it booked.'
+                ? 'Add one or more dates to schedule copies at the time/duration below, or leave dates empty for a single unscheduled copy.'
                 : 'Creates an unscheduled copy on the To Do board.'}
             </p>
             {isStephan && (
@@ -287,20 +287,18 @@ export default function TaskDetailModal({
                     + Add Date
                   </button>
                 </div>
-                {duplicateDates.length > 0 && (
-                  <div className="row2">
-                    <label>Start Time
-                      <select value={duplicateTime} onChange={(e) => setDuplicateTime(e.target.value)}>
-                        {TIME_SLOTS.map((t) => <option key={t} value={t}>{t}</option>)}
-                      </select>
-                    </label>
-                    <label>Duration
-                      <select value={duplicateDuration} onChange={(e) => setDuplicateDuration(Number(e.target.value))}>
-                        {DURATION_OPTIONS.map((d) => <option key={d.slots} value={d.slots}>{d.label}</option>)}
-                      </select>
-                    </label>
-                  </div>
-                )}
+                <div className="row2">
+                  <label>Start Time
+                    <select value={duplicateTime} onChange={(e) => setDuplicateTime(e.target.value)}>
+                      {TIME_SLOTS.map((t) => <option key={t} value={t}>{t}</option>)}
+                    </select>
+                  </label>
+                  <label>Duration
+                    <select value={duplicateDuration} onChange={(e) => setDuplicateDuration(Number(e.target.value))}>
+                      {DURATION_OPTIONS.map((d) => <option key={d.slots} value={d.slots}>{d.label}</option>)}
+                    </select>
+                  </label>
+                </div>
               </>
             )}
             <button className="btn btn-primary btn-sm" onClick={submitDuplicate} disabled={busy}>
