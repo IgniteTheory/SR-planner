@@ -15,7 +15,7 @@ export default function BillingBox({ tasks, onMarkBilled }: Props) {
           {items.map((t) => (
             <div key={t.id} className="parking-card" style={{ borderLeft: `4px solid ${t.colour}` }}>
               <div className="title">{t.title}</div>
-              <div className="client">{t.client}</div>
+              <div className="client">{t.client}{t.billingAmount ? ` · R${t.billingAmount}` : ''}</div>
               <div className="actions">
                 <button className="btn btn-primary btn-sm" onClick={() => onMarkBilled(t.id)}>Mark Billed</button>
               </div>

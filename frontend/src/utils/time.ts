@@ -127,3 +127,29 @@ export function todaysPastelColour(): string {
 export function isAddedToday(createdAt: string): boolean {
   return createdAt.slice(0, 10) === isoDate(new Date());
 }
+
+// Labels a timestamp's local calendar day as "Today", "Yesterday", or a
+// short date — used to group completed items so it's obvious at a glance
+// what got done today versus on an earlier day.
+export function dayBucketLabel(iso: string): string {
+  const d = new Date(iso);
+  const day = isoDate(d);
+  const today = isoDate(new Date());
+  if (day === today) return 'Today';
+  if (day === isoDate(addDays(new Date(), -1))) return 'Yesterday';
+  const withYear = d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() : '';
+  return d.getDate() + ' ' + d.toLocaleDateString(undefined, { month: 'short' }) + withYear;
+}
+
+// Compares a scheduled slot against the current local (browser) time, so a
+// task completed early frees up its slot only when that slot hasn't
+// happened yet — server time may be a different timezone (e.g. UTC on the
+// host), so this deliberately stays client-side.
+export function isSlotInFuture(scheduledDate: string | null, startTime: string | null): boolean {
+  if (!scheduledDate || !startTime) return false;
+  const [y, m, d] = scheduledDate.slice(0, 10).split('-').map(Number);
+  const [hh, mm] = startTime.split(':').map(Number);
+  if (!y || !m || !d || Number.isNaN(hh) || Number.isNaN(mm)) return false;
+  const slotDate = new Date(y, m - 1, d, hh, mm, 0, 0);
+  return slotDate.getTime() > Date.now();
+}

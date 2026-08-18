@@ -18,7 +18,7 @@ interface Props {
   centreView: 'week' | 'today';
   onCentreViewChange: (view: 'week' | 'today') => void;
   onSelectTask: (task: PlannerTask) => void;
-  onCellDrop: (taskId: number, dateIso: string, time: string) => void;
+  onCellDrop: (taskId: number, dateIso: string, time: string, occupyingTaskId?: number) => void;
   onCellClick: (dateIso: string, time: string) => void;
   onStartTimer: (taskId: number) => void;
   onStopTimer: (taskId: number) => void;
@@ -102,10 +102,10 @@ export default function CentrePanel({
     e.dataTransfer.effectAllowed = 'move';
   }
 
-  function handleDrop(e: DragEvent, dateIso: string, time: string) {
+  function handleDrop(e: DragEvent, dateIso: string, time: string, occupyingTaskId?: number) {
     e.preventDefault();
     const id = Number(e.dataTransfer.getData('text/plain'));
-    if (id) onCellDrop(id, dateIso, time);
+    if (id) onCellDrop(id, dateIso, time, occupyingTaskId);
   }
 
   return (
@@ -148,7 +148,7 @@ export default function CentrePanel({
                   key={`${dateIso}-${time}`}
                   className={`cell${todayColClass}${isEmpty ? ' empty-cell' : ''}`}
                   onDragOver={(e) => { if (!isCallBlock) e.preventDefault(); }}
-                  onDrop={(e) => { if (!isCallBlock) handleDrop(e, dateIso, time); }}
+                  onDrop={(e) => { if (!isCallBlock) handleDrop(e, dateIso, time, found && !found.item.completed ? found.item.id : undefined); }}
                   onClick={() => { if (isEmpty) onCellClick(dateIso, time); }}
                 >
                   {isCallBlock && (
@@ -183,7 +183,8 @@ export default function CentrePanel({
                   {found && !found.isStart && (
                     <div
                       className={`task-card${found.item.kind === 'MEETING' ? ' kind-meeting' : ''}${found.item.completed ? ' done' : ''} continuation`}
-                      style={{ borderLeftColor: found.item.colour }}
+                      style={{ borderLeftColor: found.item.colour, backgroundColor: `${found.item.colour}26` }}
+                      title={found.item.title}
                       onClick={() => onSelectTask(found.item)}
                     />
                   )}

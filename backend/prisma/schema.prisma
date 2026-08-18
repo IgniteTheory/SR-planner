@@ -70,6 +70,7 @@ model PlannerTask {
   completed      Boolean       @default(false)
   completedAt    DateTime?
   readyToBill    Boolean       @default(false)
+  billingAmount  Decimal?      @db.Decimal(10, 2)
 
   // Chanel's To Do / Doing / Done board — null for Stephan's tasks
   chanelStatus   ChanelStatus?

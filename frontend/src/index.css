@@ -235,7 +235,7 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
 .task-card.prio-MEDIUM { border-left-color: var(--amber); }
 .task-card.prio-LOW { border-left-color: #8ea0b3; }
 .task-card.kind-meeting { background: var(--meeting-bg); border-left-color: var(--meeting); }
-.task-card.continuation { padding: 2px; opacity: 0.5; }
+.task-card.continuation { padding: 2px; border-style: dashed; }
 .task-card.call-block {
   background: repeating-linear-gradient(45deg, #fdf3e2, #fdf3e2 6px, #fbe9cc 6px, #fbe9cc 12px);
   border-left-color: var(--amber); border-style: dashed; cursor: default;
@@ -274,6 +274,24 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
 .done-box .empty-note {
   border: 1px dashed var(--border); border-radius: 6px; padding: 12px 8px; text-align: center;
 }
+.done-date-group { margin-bottom: 10px; }
+.done-date-group h4 {
+  font-size: 11px; text-transform: uppercase; color: var(--text-muted); margin: 0 0 6px; letter-spacing: 0.03em;
+}
+.done-item {
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--green);
+  border-radius: 5px;
+  padding: 6px 8px;
+  margin-bottom: 6px;
+  background: #eef0ef;
+  cursor: pointer;
+  opacity: 0.75;
+}
+.done-item:hover { opacity: 1; }
+.done-item.kind-meeting { border-left-color: var(--meeting); }
+.done-item .t { font-weight: 600; font-size: 12.5px; text-decoration: line-through; color: var(--text-muted); }
+.done-item .c { color: var(--text-muted); font-size: 11px; }
 
 /* Sub-tasks / work log */
 .subtask-row { display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 12.5px; }

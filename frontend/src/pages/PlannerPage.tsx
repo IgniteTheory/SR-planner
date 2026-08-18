@@ -17,7 +17,11 @@ import ReportModal from '../components/modals/ReportModal';
 import ImportModal from '../components/modals/ImportModal';
 import ConfirmDeleteModal from '../components/modals/ConfirmDeleteModal';
 import FollowUpPromptModal from '../components/modals/FollowUpPromptModal';
+import BillingPromptModal from '../components/modals/BillingPromptModal';
+import TimerCheckInModal from '../components/modals/TimerCheckInModal';
 import { useAlarms } from '../hooks/useAlarms';
+import { useTimerCheckIn } from '../hooks/useTimerCheckIn';
+import { isSlotInFuture } from '../utils/time';
 
 export type ModalState =
   | {
@@ -34,6 +38,8 @@ export type ModalState =
   | { type: 'import' }
   | { type: 'deleteConfirm'; task: PlannerTask }
   | { type: 'meetingCompletedPrompt'; client: string; title: string }
+  | { type: 'billingPrompt'; task: PlannerTask }
+  | { type: 'timerCheckIn'; task: PlannerTask }
   | null;
 
 export default function PlannerPage() {
@@ -67,6 +73,9 @@ export default function PlannerPage() {
   }, [loadAll]);
 
   useAlarms(tasks);
+  useTimerCheckIn(tasks, (task) => {
+    setModal((current) => (current === null ? { type: 'timerCheckIn', task } : current));
+  });
 
   // Refresh whichever task is open in a modal after a mutation, so the modal
   // stays in sync instead of showing stale data.
@@ -96,10 +105,18 @@ export default function PlannerPage() {
     setModal(null);
   }
 
+  // Completing a Stephan task/meeting whose slot hasn't happened yet frees
+  // that slot up for something else; a slot that's already now or in the
+  // past is left in place so the card stays visible as a record of when it
+  // happened. Compared against the browser's local time, not the server's.
   async function completeTask(id: number) {
     const res = await api.post<{ task: PlannerTask }>(`/tasks/${id}/complete`);
-    setTasks((prev) => prev.map((t) => (t.id === id ? res.task : t)));
-    return res.task;
+    let task = res.task;
+    setTasks((prev) => prev.map((t) => (t.id === id ? task : t)));
+    if (task.assignedTo === 'STEPHAN' && isSlotInFuture(task.scheduledDate, task.startTime)) {
+      task = await updateTask(id, { scheduledDate: null, startTime: null, durationSlots: null });
+    }
+    return task;
   }
 
   async function restoreTask(id: number) {
@@ -183,6 +200,12 @@ export default function PlannerPage() {
   }
 
   async function startTimer(taskId: number) {
+    const alreadyRunning = tasks.find((t) => t.id !== taskId && t.timerStartedAt);
+    if (alreadyRunning) {
+      const ok = window.confirm(`A timer is already running on "${alreadyRunning.title}". Stop it and start this one instead?`);
+      if (!ok) return;
+      await stopTimer(alreadyRunning.id);
+    }
     const res = await api.post<{ task: PlannerTask }>(`/tasks/${taskId}/timer/start`);
     setTasks((prev) => prev.map((t) => (t.id === taskId ? res.task : t)));
     refreshOpenTask(res.task);
@@ -241,24 +264,61 @@ export default function PlannerPage() {
     await updateTask(id, { scheduledDate: null, startTime: null });
   }
 
-  async function handleCellDrop(id: number, dateIso: string, time: string) {
+  // Swaps two of Stephan's scheduled items' slots wholesale. If the dragged
+  // item had no slot yet (came from the Parking Lot), it simply hands its
+  // "no slot" over to the bumped item, which ends up unscheduled. The
+  // backend guards against a third item already sitting in either
+  // destination slot and rejects the swap rather than double-booking it.
+  async function swapSchedule(id: number, withId: number) {
+    try {
+      const res = await api.post<{ taskA: PlannerTask; taskB: PlannerTask }>(`/tasks/${id}/swap-schedule`, { withId });
+      setTasks((prev) =>
+        prev.map((t) => {
+          if (t.id === res.taskA.id) return res.taskA;
+          if (t.id === res.taskB.id) return res.taskB;
+          return t;
+        })
+      );
+      refreshOpenTask(res.taskA);
+      refreshOpenTask(res.taskB);
+    } catch (err) {
+      window.alert(err instanceof ApiError ? err.message : 'Could not swap these slots.');
+    }
+  }
+
+  async function handleCellDrop(id: number, dateIso: string, time: string, occupyingTaskId?: number) {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
     if (task.scheduledDate?.slice(0, 10) === dateIso && task.startTime === time) return;
+    if (occupyingTaskId != null && occupyingTaskId !== id) {
+      await swapSchedule(id, occupyingTaskId);
+      return;
+    }
     await scheduleWithConflictCheck(id, dateIso, time, task.durationSlots ?? undefined);
   }
 
-  function completeMeetingThenPrompt(task: PlannerTask) {
-    completeTask(task.id).then(() => {
-      setModal({ type: 'meetingCompletedPrompt', client: task.client, title: task.title });
+  // Single choke point for both completion paths (Complete button + drag-to-
+  // Done): completes the task, then — if it's one of Stephan's items not
+  // already flagged for billing — asks whether it must be billed before
+  // (for meetings) the existing Outlook follow-up prompt shows.
+  function completeThenMaybePromptBilling(task: PlannerTask) {
+    return completeTask(task.id).then((completed) => {
+      if (completed.assignedTo === 'STEPHAN' && !completed.readyToBill) {
+        setModal({ type: 'billingPrompt', task: completed });
+      } else if (completed.kind === 'MEETING') {
+        setModal({ type: 'meetingCompletedPrompt', client: completed.client, title: completed.title });
+      } else {
+        setModal(null);
+      }
     });
   }
 
   // Dragging a task/meeting off the calendar onto the Done box — same
   // completion logic as the Complete button in the detail modal, so a
-  // dropped meeting still gets the Outlook follow-up prompt. Items that were
-  // already marked done ahead of time have nothing left to complete, so
-  // dropping them just unschedules them off the calendar instead.
+  // dropped meeting still gets the billing prompt and Outlook follow-up
+  // prompt. Items that were already marked done ahead of time have nothing
+  // left to complete, so dropping them just unschedules them off the
+  // calendar instead.
   function completeTaskById(id: number) {
     const task = tasks.find((t) => t.id === id);
     if (!task) return;
@@ -266,19 +326,17 @@ export default function PlannerPage() {
       if (task.scheduledDate) updateTask(id, { scheduledDate: null, startTime: null });
       return;
     }
-    if (task.kind === 'MEETING') {
-      completeMeetingThenPrompt(task);
-    } else {
-      completeTask(task.id).catch((err) => {
-        window.alert(err instanceof ApiError ? err.message : 'Could not complete this task.');
-      });
-    }
+    completeThenMaybePromptBilling(task).catch((err) => {
+      window.alert(err instanceof ApiError ? err.message : 'Could not complete this task.');
+    });
   }
 
   // Stephan flags a task as needing to be billed. Kept out of Chanel's
   // regular To Do/Doing/Done board — it lands in its own Bill box instead.
-  async function markNeedsBilling(task: PlannerTask) {
-    await updateTask(task.id, { readyToBill: true });
+  // An amount is optional so the plain "Bill" button in the detail modal
+  // (no amount) keeps working exactly as before.
+  async function markNeedsBilling(task: PlannerTask, amount?: number) {
+    await updateTask(task.id, { readyToBill: true, ...(amount != null ? { billingAmount: amount } : {}) });
     await createTask({
       title: `Bill client for "${task.title}"`,
       client: task.client,
@@ -286,6 +344,7 @@ export default function PlannerPage() {
       priority: 'MEDIUM',
       colour: '#1f7a4d',
       isBillingItem: true,
+      ...(amount != null ? { billingAmount: amount } : {}),
     });
   }
 
@@ -346,7 +405,7 @@ export default function PlannerPage() {
           if (id) handleParkingDrop(id);
         }}>
           <CollapsibleSection title="Done">
-            <DoneBox onDropComplete={completeTaskById} />
+            <DoneBox tasks={tasks} onSelectTask={(task) => setModal({ type: 'detail', task })} onDropComplete={completeTaskById} />
           </CollapsibleSection>
           <hr className="divider" />
           <CollapsibleSection title="Bill">
@@ -439,14 +498,7 @@ export default function PlannerPage() {
           onEdit={(task) => setModal(task.kind === 'MEETING' ? { type: 'editMeeting', task } : { type: 'editTask', task })}
           onDelete={(task) => setModal({ type: 'deleteConfirm', task })}
           onUpdateTask={updateTask}
-          onComplete={async (task) => {
-            if (task.kind === 'MEETING') {
-              completeMeetingThenPrompt(task);
-            } else {
-              await completeTask(task.id);
-              setModal(null);
-            }
-          }}
+          onComplete={(task) => completeThenMaybePromptBilling(task)}
           onRestore={async (task) => {
             await restoreTask(task.id);
           }}
@@ -489,6 +541,43 @@ export default function PlannerPage() {
           title={modal.title}
           onSkip={() => setModal(null)}
           onAddTask={() => setModal({ type: 'newTask', prefill: { client: modal.client } })}
+        />
+      )}
+
+      {modal?.type === 'billingPrompt' && (
+        <BillingPromptModal
+          title={modal.task.title}
+          onSkip={() => {
+            const task = modal.task;
+            if (task.kind === 'MEETING') {
+              setModal({ type: 'meetingCompletedPrompt', client: task.client, title: task.title });
+            } else {
+              setModal(null);
+            }
+          }}
+          onConfirm={async (amount) => {
+            const task = modal.task;
+            await markNeedsBilling(task, amount);
+            if (task.kind === 'MEETING') {
+              setModal({ type: 'meetingCompletedPrompt', client: task.client, title: task.title });
+            } else {
+              setModal(null);
+            }
+          }}
+        />
+      )}
+
+      {modal?.type === 'timerCheckIn' && (
+        <TimerCheckInModal
+          title={modal.task.title}
+          onStillWorking={() => setModal(null)}
+          onStop={() => {
+            const taskId = modal.task.id;
+            setModal(null);
+            stopTimer(taskId).catch((err) => {
+              window.alert(err instanceof ApiError ? err.message : 'Could not stop the timer.');
+            });
+          }}
         />
       )}
 
