@@ -128,6 +128,19 @@ export function isAddedToday(createdAt: string): boolean {
   return createdAt.slice(0, 10) === isoDate(new Date());
 }
 
+// Labels a timestamp's local calendar day as "Today", "Yesterday", or a
+// short date — used to group completed items so it's obvious at a glance
+// what got done today versus on an earlier day.
+export function dayBucketLabel(iso: string): string {
+  const d = new Date(iso);
+  const day = isoDate(d);
+  const today = isoDate(new Date());
+  if (day === today) return 'Today';
+  if (day === isoDate(addDays(new Date(), -1))) return 'Yesterday';
+  const withYear = d.getFullYear() !== new Date().getFullYear() ? ' ' + d.getFullYear() : '';
+  return d.getDate() + ' ' + d.toLocaleDateString(undefined, { month: 'short' }) + withYear;
+}
+
 // Compares a scheduled slot against the current local (browser) time, so a
 // task completed early frees up its slot only when that slot hasn't
 // happened yet — server time may be a different timezone (e.g. UTC on the

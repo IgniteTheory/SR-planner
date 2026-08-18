@@ -405,7 +405,7 @@ export default function PlannerPage() {
           if (id) handleParkingDrop(id);
         }}>
           <CollapsibleSection title="Done">
-            <DoneBox onDropComplete={completeTaskById} />
+            <DoneBox tasks={tasks} onSelectTask={(task) => setModal({ type: 'detail', task })} onDropComplete={completeTaskById} />
           </CollapsibleSection>
           <hr className="divider" />
           <CollapsibleSection title="Bill">
