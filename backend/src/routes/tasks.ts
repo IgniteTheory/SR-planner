@@ -181,6 +181,9 @@ const updateSchema = z.object({
   location: z.string().nullable().optional(),
   agenda: z.string().nullable().optional(),
   readyToBill: z.boolean().optional(),
+  billed: z.boolean().optional(),
+  billingDescription: z.string().nullable().optional(),
+  billingHours: z.number().nullable().optional(),
   billingAmount: z.number().nullable().optional()
 });
 
@@ -209,6 +212,9 @@ router.patch('/:id', requireAuth, async (req, res) => {
   }
   if ('billingAmount' in data) {
     patch.billingAmount = data.billingAmount != null ? toDecimal(data.billingAmount) : null;
+  }
+  if ('billingHours' in data) {
+    patch.billingHours = data.billingHours != null ? toDecimal(data.billingHours) : null;
   }
 
   const task = await prisma.plannerTask.update({

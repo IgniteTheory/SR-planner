@@ -69,14 +69,22 @@ model PlannerTask {
 
   completed      Boolean       @default(false)
   completedAt    DateTime?
-  readyToBill    Boolean       @default(false)
-  billingAmount  Decimal?      @db.Decimal(10, 2)
+
+  // Billing quote — captured once (via the completion prompt or the Bill
+  // button) and editable until actually invoiced. readyToBill means a quote
+  // exists; billed means it's been invoiced and can drop off the Bill box.
+  readyToBill        Boolean       @default(false)
+  billed             Boolean       @default(false)
+  billingDescription String?
+  billingHours       Decimal?      @db.Decimal(6, 2)
+  billingAmount      Decimal?      @db.Decimal(10, 2)
 
   // Chanel's To Do / Doing / Done board — null for Stephan's tasks
   chanelStatus   ChanelStatus?
 
-  // Auto-generated "Bill client for X" reminder — kept out of Chanel's
-  // regular To Do/Doing/Done board, shown in its own box instead
+  // Legacy auto-generated "Bill client for X" placeholder — superseded by
+  // the readyToBill/billed quote fields above, kept only so pre-existing
+  // placeholder tasks stay visible in the Bill box until drained.
   isBillingItem  Boolean       @default(false)
 
   // Set while a start/stop timer is running on this task; cleared (and a
