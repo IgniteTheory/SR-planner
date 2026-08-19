@@ -11,7 +11,7 @@ interface Props {
   onUpdateTask: (id: number, patch: Record<string, unknown>) => Promise<PlannerTask>;
   onComplete: (task: PlannerTask) => Promise<void> | void;
   onRestore: (task: PlannerTask) => Promise<void>;
-  onMarkNeedsBilling: (task: PlannerTask) => Promise<void>;
+  onOpenBillingQuote: (task: PlannerTask) => void;
   onContinueTomorrowChanel: (id: number) => Promise<void>;
   onScheduleWithConflictCheck: (id: number, date: string, time: string, durationSlots?: number) => Promise<boolean>;
   onDuplicateTask: (id: number, opts: { dates?: string[]; startTime?: string | null; durationSlots?: number | null }) => Promise<PlannerTask[]>;
@@ -68,7 +68,7 @@ export default function TaskDetailModal({
   onUpdateTask,
   onComplete,
   onRestore,
-  onMarkNeedsBilling,
+  onOpenBillingQuote,
   onContinueTomorrowChanel,
   onScheduleWithConflictCheck,
   onDuplicateTask,
@@ -431,11 +431,11 @@ export default function TaskDetailModal({
           {isStephan && (
             <button
               className={`btn btn-sm${task.readyToBill ? ' btn-secondary' : ' btn-light'}`}
-              onClick={() => run(() => onMarkNeedsBilling(task))}
-              disabled={busy || task.readyToBill}
-              title="Flags this for Chanel to bill the client"
+              onClick={() => onOpenBillingQuote(task)}
+              disabled={busy || task.billed}
+              title={task.billed ? 'Already billed' : task.readyToBill ? 'Edit the billing quote' : 'Add a billing quote for this task'}
             >
-              {task.readyToBill ? 'Billed ✓' : 'Bill'}
+              {task.billed ? 'Billed ✓' : task.readyToBill ? 'Edit Quote' : 'Bill'}
             </button>
           )}
           <button className="btn btn-danger btn-sm" onClick={() => onDelete(task)} disabled={busy}>Delete</button>

@@ -18,6 +18,7 @@ import ImportModal from '../components/modals/ImportModal';
 import ConfirmDeleteModal from '../components/modals/ConfirmDeleteModal';
 import FollowUpPromptModal from '../components/modals/FollowUpPromptModal';
 import BillingPromptModal from '../components/modals/BillingPromptModal';
+import BillingQuoteModal from '../components/modals/BillingQuoteModal';
 import TimerCheckInModal from '../components/modals/TimerCheckInModal';
 import { useAlarms } from '../hooks/useAlarms';
 import { useTimerCheckIn } from '../hooks/useTimerCheckIn';
@@ -39,6 +40,7 @@ export type ModalState =
   | { type: 'deleteConfirm'; task: PlannerTask }
   | { type: 'meetingCompletedPrompt'; client: string; title: string }
   | { type: 'billingPrompt'; task: PlannerTask }
+  | { type: 'billingQuoteForm'; task: PlannerTask; context: 'completion' | 'manual' }
   | { type: 'timerCheckIn'; task: PlannerTask }
   | null;
 
@@ -297,6 +299,17 @@ export default function PlannerPage() {
     await scheduleWithConflictCheck(id, dateIso, time, task.durationSlots ?? undefined);
   }
 
+  // Once billing is settled one way or another (declined, or a quote was
+  // saved), continue to the Outlook follow-up prompt for a meeting, or just
+  // close for a task.
+  function afterBillingResolved(task: PlannerTask) {
+    if (task.kind === 'MEETING') {
+      setModal({ type: 'meetingCompletedPrompt', client: task.client, title: task.title });
+    } else {
+      setModal(null);
+    }
+  }
+
   // Single choke point for both completion paths (Complete button + drag-to-
   // Done): completes the task, then — if it's one of Stephan's items not
   // already flagged for billing — asks whether it must be billed before
@@ -305,10 +318,8 @@ export default function PlannerPage() {
     return completeTask(task.id).then((completed) => {
       if (completed.assignedTo === 'STEPHAN' && !completed.readyToBill) {
         setModal({ type: 'billingPrompt', task: completed });
-      } else if (completed.kind === 'MEETING') {
-        setModal({ type: 'meetingCompletedPrompt', client: completed.client, title: completed.title });
       } else {
-        setModal(null);
+        afterBillingResolved(completed);
       }
     });
   }
@@ -331,24 +342,27 @@ export default function PlannerPage() {
     });
   }
 
-  // Stephan flags a task as needing to be billed. Kept out of Chanel's
-  // regular To Do/Doing/Done board — it lands in its own Bill box instead.
-  // An amount is optional so the plain "Bill" button in the detail modal
-  // (no amount) keeps working exactly as before.
-  async function markNeedsBilling(task: PlannerTask, amount?: number) {
-    await updateTask(task.id, { readyToBill: true, ...(amount != null ? { billingAmount: amount } : {}) });
-    await createTask({
-      title: `Bill client for "${task.title}"`,
-      client: task.client,
-      assignedTo: 'CHANEL',
-      priority: 'MEDIUM',
-      colour: '#1f7a4d',
-      isBillingItem: true,
-      ...(amount != null ? { billingAmount: amount } : {}),
+  // Saves a billing quote directly on the task itself (description, hours,
+  // and an optional amount — it can be left blank while waiting on a
+  // price). No more auto-created placeholder task: the Bill box reads the
+  // quote straight off this task, so "View" can always show the real work.
+  async function saveQuote(task: PlannerTask, values: { description: string; hours: number; amount: number | null }) {
+    return updateTask(task.id, {
+      readyToBill: true,
+      billingDescription: values.description,
+      billingHours: values.hours,
+      billingAmount: values.amount,
     });
   }
 
   async function markBillingDone(id: number) {
+    await updateTask(id, { billed: true });
+  }
+
+  // Pre-quote-flow "Bill client for X" placeholder tasks — kept working so
+  // anything already in the pipeline before this change can still be
+  // cleared out of the Bill box.
+  async function markLegacyBillingDone(id: number) {
     await completeTask(id);
   }
 
@@ -409,7 +423,12 @@ export default function PlannerPage() {
           </CollapsibleSection>
           <hr className="divider" />
           <CollapsibleSection title="Bill">
-            <BillingBox tasks={tasks} onMarkBilled={markBillingDone} />
+            <BillingBox
+              tasks={tasks}
+              onSelectTask={(task) => setModal({ type: 'detail', task })}
+              onMarkBilled={markBillingDone}
+              onMarkLegacyBilled={markLegacyBillingDone}
+            />
           </CollapsibleSection>
           <hr className="divider" />
           <CollapsibleSection title="Parking Lot">
@@ -502,7 +521,7 @@ export default function PlannerPage() {
           onRestore={async (task) => {
             await restoreTask(task.id);
           }}
-          onMarkNeedsBilling={markNeedsBilling}
+          onOpenBillingQuote={(task) => setModal({ type: 'billingQuoteForm', task, context: 'manual' })}
           onContinueTomorrowChanel={continueTomorrowChanel}
           onScheduleWithConflictCheck={scheduleWithConflictCheck}
           onDuplicateTask={duplicateTask}
@@ -547,22 +566,22 @@ export default function PlannerPage() {
       {modal?.type === 'billingPrompt' && (
         <BillingPromptModal
           title={modal.task.title}
-          onSkip={() => {
-            const task = modal.task;
-            if (task.kind === 'MEETING') {
-              setModal({ type: 'meetingCompletedPrompt', client: task.client, title: task.title });
-            } else {
-              setModal(null);
-            }
+          onNo={() => afterBillingResolved(modal.task)}
+          onYes={() => setModal({ type: 'billingQuoteForm', task: modal.task, context: 'completion' })}
+        />
+      )}
+
+      {modal?.type === 'billingQuoteForm' && (
+        <BillingQuoteModal
+          task={modal.task}
+          onCancel={() => {
+            if (modal.context === 'completion') afterBillingResolved(modal.task);
+            else setModal({ type: 'detail', task: modal.task });
           }}
-          onConfirm={async (amount) => {
-            const task = modal.task;
-            await markNeedsBilling(task, amount);
-            if (task.kind === 'MEETING') {
-              setModal({ type: 'meetingCompletedPrompt', client: task.client, title: task.title });
-            } else {
-              setModal(null);
-            }
+          onSave={async (values) => {
+            const updated = await saveQuote(modal.task, values);
+            if (modal.context === 'completion') afterBillingResolved(updated);
+            else setModal({ type: 'detail', task: updated });
           }}
         />
       )}

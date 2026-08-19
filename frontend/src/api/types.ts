@@ -52,6 +52,9 @@ export interface PlannerTask {
   completed: boolean;
   completedAt: string | null;
   readyToBill: boolean;
+  billed: boolean;
+  billingDescription: string | null;
+  billingHours: string | null;
   billingAmount: string | null;
   isBillingItem: boolean;
   chanelStatus: ChanelStatus | null;

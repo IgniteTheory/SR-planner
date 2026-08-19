@@ -268,6 +268,7 @@ header.topbar .actions { display: flex; align-items: center; gap: 10px; flex-wra
 .parking-card .title { font-weight: 700; font-size: 13px; cursor: pointer; }
 .parking-card .client { color: var(--text-muted); font-size: 11.5px; margin-bottom: 4px; }
 .parking-card .meta { display: flex; justify-content: space-between; font-size: 11px; color: var(--text-muted); margin-bottom: 6px; }
+.parking-card .billing-desc { font-size: 11.5px; color: var(--text); margin-bottom: 6px; white-space: pre-wrap; }
 .parking-card .actions { display: flex; gap: 6px; }
 
 .done-box { margin-bottom: 4px; }
